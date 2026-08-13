@@ -1,0 +1,25 @@
+name: Feature request
+description: Propose a user-visible, reviewable improvement.
+title: "feature: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: User problem
+      description: Explain the workflow pain, not only the proposed implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior and boundaries
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Safety and permission impact
+      description: Explain filesystem, command, model, Git, credential, or PR impact.
+    validations:
+      required: true

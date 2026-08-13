@@ -1,0 +1,7 @@
+{
+  "number": 1,
+  "title": "Prevent a crash when dividing by zero",
+  "body": "The calculator crashes when the denominator is zero.\n\nAcceptance criteria:\n- divide(8, 0) raises a clear ValueError\n- normal division continues to work\n\nConstraints:\n- Do not refactor unrelated arithmetic behavior",
+  "url": "https://example.invalid/issues/1",
+  "labels": [{"name": "bug"}]
+}

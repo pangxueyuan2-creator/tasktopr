@@ -1,0 +1,28 @@
+# Python and packaging
+__pycache__/
+*.py[cod]
+*.egg-info/
+.build/
+build/
+dist/
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# TaskToPR local evidence and configuration secrets
+.tasktopr/
+.tasktopr.toml
+.env
+.env.*
+*.pem
+*.key
+
+# Node and editor artifacts
+node_modules/
+.DS_Store
+.idea/
+.vscode/

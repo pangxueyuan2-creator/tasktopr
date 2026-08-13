@@ -1,0 +1,7 @@
+exclude_dirs:
+  - /tests
+  - /demo
+skips:
+  - B404
+  - B603
+  - B607

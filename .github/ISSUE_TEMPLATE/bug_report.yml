@@ -1,0 +1,33 @@
+name: Bug report
+description: Report a reproducible TaskToPR defect.
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Do not paste API keys, tokens, private repository content, or security vulnerabilities here. Use SECURITY.md for sensitive reports."
+  - type: input
+    id: version
+    attributes:
+      label: TaskToPR version
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Sanitized command and expected result
+      placeholder: "tasktopr plan 123 --dry-run"
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result and sanitized evidence
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: "OS, Python, Git, gh, provider name; omit credential values"
