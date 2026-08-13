@@ -1,5 +1,8 @@
+import unittest
+
 from calculator import divide
 
 
-def test_divide_returns_quotient() -> None:
-    assert divide(8, 2) == 4
+class DivideTests(unittest.TestCase):
+    def test_divide_returns_quotient(self) -> None:
+        self.assertEqual(divide(8, 2), 4)

@@ -16,6 +16,8 @@ venv/
 # TaskToPR local evidence and configuration secrets
 .tasktopr/
 .tasktopr.toml
+# The bundled demo needs a committed, non-secret test command.
+!demo/zero_division_repo/.tasktopr.toml
 .env
 .env.*
 *.pem

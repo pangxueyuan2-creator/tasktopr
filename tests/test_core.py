@@ -163,7 +163,7 @@ def test_demo_fix_creates_real_branch_patch_tests_and_evidence(demo_repo: Path) 
     result = fix_issue(
         1,
         start_dir=demo_repo,
-        config=TaskToPRConfig(),
+        config=load_config(demo_repo),
         provider=DemoProvider(),
         no_pr=True,
         demo=True,

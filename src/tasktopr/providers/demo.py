@@ -29,8 +29,8 @@ class DemoProvider(ModelProvider):
                         {
                             "kind": "replace",
                             "path": "test_calculator.py",
-                            "old_text": "from calculator import divide\n\n\ndef test_divide_returns_quotient() -> None:\n    assert divide(8, 2) == 4\n",
-                            "new_text": 'import pytest\n\nfrom calculator import divide\n\n\ndef test_divide_returns_quotient() -> None:\n    assert divide(8, 2) == 4\n\n\ndef test_divide_rejects_zero_denominator() -> None:\n    with pytest.raises(ValueError, match="denominator must not be zero"):\n        divide(8, 0)\n',
+                            "old_text": "import unittest\n\nfrom calculator import divide\n\n\nclass DivideTests(unittest.TestCase):\n    def test_divide_returns_quotient(self) -> None:\n        self.assertEqual(divide(8, 2), 4)\n",
+                            "new_text": 'import unittest\n\nfrom calculator import divide\n\n\nclass DivideTests(unittest.TestCase):\n    def test_divide_returns_quotient(self) -> None:\n        self.assertEqual(divide(8, 2), 4)\n\n    def test_divide_rejects_zero_denominator(self) -> None:\n        with self.assertRaisesRegex(ValueError, "denominator must not be zero"):\n            divide(8, 0)\n',
                             "reason": "Cover the reported crash and preserve the happy path.",
                         },
                     ],
@@ -53,7 +53,7 @@ class DemoProvider(ModelProvider):
                             "rationale": "The crash requires a focused regression test.",
                         },
                     ],
-                    "test_plan": ["python -m pytest -q"],
+                    "test_plan": ["python -m unittest discover -v"],
                     "non_goals": ["Do not refactor unrelated arithmetic functions."],
                     "risk": "low",
                 }

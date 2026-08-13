@@ -19,4 +19,4 @@ tasktopr fix 1 --demo --no-pr
 printf '\n== Verified diff ==\n\n'
 git diff -- calculator.py test_calculator.py
 printf '\n== Verified tests ==\n\n'
-python -m pytest -q
+python -m unittest discover -v
