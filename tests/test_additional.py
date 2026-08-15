@@ -11,6 +11,7 @@ from typing import ClassVar
 import pytest
 from typer.testing import CliRunner
 
+from tasktopr import __version__
 from tasktopr.agents.explorer import compact_context, explore
 from tasktopr.agents.intake import IssueIntakeError, load_issue
 from tasktopr.agents.reviewer import review_changes
@@ -23,6 +24,12 @@ from tasktopr.providers.http import AnthropicProvider, OpenAICompatibleProvider,
 from tasktopr.security import run_safe_command
 
 RUNNER = CliRunner()
+
+
+def test_cli_version_prints_package_version() -> None:
+    result = RUNNER.invoke(app, ["--version"])
+    assert result.exit_code == 0
+    assert result.stdout.strip() == __version__
 
 
 def test_positive_command_and_timeout_are_evidenced(tmp_path: Path) -> None:

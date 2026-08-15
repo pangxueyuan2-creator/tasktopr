@@ -12,6 +12,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from . import __version__
 from .agents import git_root, list_changed_files, review_changes
 from .config import (
     ConfigError,
@@ -31,6 +32,29 @@ app = typer.Typer(
     help="Turn a GitHub Issue into a transparent, tested Pull Request.",
 )
 console = Console()
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(__version__)
+        raise typer.Exit()
+
+
+@app.callback()
+def _cli(
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            help="Show the installed TaskToPR version and exit.",
+            callback=_version_callback,
+            is_eager=True,
+        ),
+    ] = False,
+) -> None:
+    """Turn a GitHub Issue into a transparent, tested Pull Request."""
+
+    del version
 
 
 def _config_and_provider(

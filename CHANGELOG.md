@@ -19,6 +19,7 @@ All notable changes are documented here. TaskToPR follows semantic versioning on
 
 ### Added
 
+- `tasktopr --version` prints the installed package version and exits.
 - Regression tests for missing `gh` in `doctor` and for path-separator normalization in protected-path checks.
 - Optional `--boundary` loader for GuardSpec `agent-boundary/v1` JSON (denied/protected additive; exclusive-allow replaces the allow list).
 - Jailbreak and exclusive-allow policy regressions.
