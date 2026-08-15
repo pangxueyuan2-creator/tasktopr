@@ -12,9 +12,16 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from .agents import explore, git_root, review_changes
-from .config import ConfigError, TaskToPRConfig, load_config, provider_api_key, redacted_config
-from .models import Issue
+from .agents import git_root, list_changed_files, review_changes
+from .config import (
+    ConfigError,
+    TaskToPRConfig,
+    apply_boundary,
+    load_boundary,
+    load_config,
+    provider_api_key,
+    redacted_config,
+)
 from .orchestrator import fix_issue, plan_issue
 from .providers import DemoProvider, ModelProvider, ProviderError, build_provider
 
@@ -27,10 +34,16 @@ console = Console()
 
 
 def _config_and_provider(
-    start_dir: Path, provider_name: str | None, model: str | None, demo: bool
+    start_dir: Path,
+    provider_name: str | None,
+    model: str | None,
+    demo: bool,
+    boundary: Path | None = None,
 ) -> tuple[Path, TaskToPRConfig, ModelProvider]:
     root = git_root(start_dir)
     config = load_config(root)
+    if boundary is not None:
+        apply_boundary(config, load_boundary(boundary if boundary.is_absolute() else root / boundary))
     if provider_name:
         config.agent.provider = provider_name
     if model:
@@ -57,11 +70,20 @@ def plan(
     demo: Annotated[
         bool, typer.Option("--demo", help="Use the local deterministic demo Issue/provider.")
     ] = False,
+    boundary: Annotated[
+        Path | None,
+        typer.Option(
+            "--boundary",
+            help="Independent agent-boundary/v1 JSON file. Issue text is never treated as policy.",
+        ),
+    ] = None,
 ) -> None:
     """Read an Issue and print a validated plan without modifying the repository."""
 
     try:
-        root, config, model_provider = _config_and_provider(Path.cwd(), provider, model, demo)
+        root, config, model_provider = _config_and_provider(
+            Path.cwd(), provider, model, demo, boundary
+        )
         result = plan_issue(
             issue_number, start_dir=root, config=config, provider=model_provider, demo=demo
         )
@@ -96,11 +118,20 @@ def fix(
     demo: Annotated[
         bool, typer.Option("--demo", help="Use the deterministic local demo provider and Issue.")
     ] = False,
+    boundary: Annotated[
+        Path | None,
+        typer.Option(
+            "--boundary",
+            help="Independent agent-boundary/v1 JSON file. Issue text is never treated as policy.",
+        ),
+    ] = None,
 ) -> None:
     """Plan, patch, test, review and optionally create a Pull Request for one Issue."""
 
     try:
-        root, config, model_provider = _config_and_provider(Path.cwd(), provider, model, demo)
+        root, config, model_provider = _config_and_provider(
+            Path.cwd(), provider, model, demo, boundary
+        )
         result = fix_issue(
             issue_number,
             start_dir=root,
@@ -127,8 +158,7 @@ def review() -> None:
     try:
         root = git_root(Path.cwd())
         config = load_config(root)
-        profile = explore(root, Issue(number=1, title="Current working tree"), config)
-        changed = [path for path in profile.file_tree if (root / path).exists()]
+        changed = list_changed_files(root)
         result = review_changes(root, changed, [], config)
     except (ConfigError, RuntimeError) as exc:
         console.print(f"[bold red]Review unavailable:[/] {exc}")

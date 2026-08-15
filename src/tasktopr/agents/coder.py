@@ -5,7 +5,7 @@ from __future__ import annotations
 from ..config import TaskToPRConfig
 from ..models import ChangePlan, PatchRequest, RepositoryProfile
 from ..providers import ModelProvider, parse_json_model
-from ..security import SecurityError, is_protected, safe_path
+from ..security import SecurityError, policy_blocks, safe_path
 
 _PATCH_SYSTEM = """You are TaskToPR's coding component. Produce only a JSON object matching this schema:
 {
@@ -30,7 +30,7 @@ def request_patch(
     targets = [step.path for step in plan.steps]
     sources: list[str] = []
     for path in targets:
-        if is_protected(path, config.scope.protected):
+        if policy_blocks(path, config):
             raise SecurityError(f"Plan target is protected: {path}")
         target = safe_path(profile.root, path)
         if target.exists():
@@ -62,7 +62,7 @@ def apply_patch(
 
     changed: list[str] = []
     for operation in patch.operations:
-        if is_protected(operation.path, config.scope.protected):
+        if policy_blocks(operation.path, config):
             raise SecurityError(f"Refusing to edit protected path: {operation.path}")
         path = safe_path(profile.root, operation.path)
         if operation.kind == "create":

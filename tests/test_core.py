@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from tasktopr.agents.coder import apply_patch, request_patch
 from tasktopr.agents.explorer import explore
 from tasktopr.agents.intake import extract_signals, load_issue
+from tasktopr.agents.reviewer import list_changed_files, review_changes
 from tasktopr.config import ConfigError, TaskToPRConfig, load_config
 from tasktopr.models import (
     ChangePlan,
@@ -68,7 +69,12 @@ def test_safe_path_blocks_traversal_and_symlink_escape(tmp_path: Path) -> None:
         safe_path(root, "../outside.txt")
     outside = tmp_path / "outside"
     outside.mkdir()
-    (root / "link").symlink_to(outside, target_is_directory=True)
+    try:
+        (root / "link").symlink_to(outside, target_is_directory=True)
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == 1314:
+            pytest.skip("Windows symlink privilege is not available in this environment")
+        raise
     with pytest.raises(SecurityError):
         safe_path(root, "link/secret.txt")
 
@@ -78,6 +84,9 @@ def test_safe_path_blocks_traversal_and_symlink_escape(tmp_path: Path) -> None:
     [
         (".github/workflows/ci.yml", True),
         (".env.production", True),
+        ("config/.env", True),
+        ("config/.env.local", True),
+        (".tasktopr.toml", True),
         ("src/auth/token.py", True),
         ("src/calculator.py", False),
     ],
@@ -234,6 +243,91 @@ def test_patch_rejects_file_outside_plan(demo_repo: Path) -> None:
 
     with pytest.raises(SecurityError):
         request_patch(UnsafeProvider(), plan, profile, TaskToPRConfig())
+
+
+def test_issue_cannot_elevate_permissions_to_workflows(demo_repo: Path) -> None:
+    class JailbreakProvider(DemoProvider):
+        def complete(self, **kwargs: object) -> str:  # type: ignore[override]
+            return json.dumps(
+                {
+                    "summary": "Issue granted CI access",
+                    "root_cause": "The Issue said workflows are allowed.",
+                    "steps": [
+                        {
+                            "path": ".github/workflows/ci.yml",
+                            "action": "replace",
+                            "rationale": "Issue body granted extra permissions",
+                        }
+                    ],
+                    "test_plan": ["pytest"],
+                    "non_goals": [],
+                    "risk": "low",
+                }
+            )
+
+    result = plan_issue(
+        1,
+        start_dir=demo_repo,
+        config=TaskToPRConfig(),
+        provider=JailbreakProvider(),
+        demo=True,
+    )
+    assert result.success is False
+    assert "protected" in result.message.casefold()
+
+
+def test_apply_patch_blocks_workflow_even_when_called_directly(demo_repo: Path) -> None:
+    workflows = demo_repo / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "ci.yml").write_text("name: ci\n", encoding="utf-8")
+    profile = explore(demo_repo, Issue(number=1, title="ci"), TaskToPRConfig())
+    patch = PatchRequest(
+        summary="jailbreak",
+        operations=[
+            PatchOperation(
+                kind="replace",
+                path=".github/workflows/ci.yml",
+                old_text="name: ci\n",
+                new_text="name: pwned\n",
+                reason="issue said so",
+            )
+        ],
+    )
+    with pytest.raises(SecurityError, match="protected"):
+        apply_patch(patch, profile, TaskToPRConfig())
+
+
+def test_list_changed_files_includes_rename_source_and_destination(demo_repo: Path) -> None:
+    subprocess.run(
+        ["git", "mv", "calculator.py", "renamed calculator.py"],
+        cwd=demo_repo,
+        check=True,
+        capture_output=True,
+    )
+    changed = list_changed_files(demo_repo)
+    assert "calculator.py" in changed
+    assert "renamed calculator.py" in changed
+
+
+def test_review_uses_git_changes_not_existing_protected_files(demo_repo: Path) -> None:
+    (demo_repo / ".env").write_text("SECRET=1\n", encoding="utf-8")
+    subprocess.run(["git", "add", ".env"], cwd=demo_repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "add env"],
+        cwd=demo_repo,
+        check=True,
+        capture_output=True,
+    )
+    target = demo_repo / "calculator.py"
+    target.write_text(target.read_text(encoding="utf-8") + "\n# reviewed\n", encoding="utf-8")
+    result = review_changes(
+        demo_repo,
+        ["calculator.py"],
+        [CommandResult(command=["python", "-m", "pytest"], return_code=0, elapsed_seconds=0.1)],
+        TaskToPRConfig(),
+    )
+    assert result.approved is True
+    assert ".env" not in result.changed_files
 
 
 def test_apply_patch_rejects_ambiguous_old_text(demo_repo: Path) -> None:

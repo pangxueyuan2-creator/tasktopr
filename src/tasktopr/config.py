@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import os
 import tomllib
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
+
+AGENT_BOUNDARY_SCHEMA = "https://patchwitness.dev/agent-boundary/v1"
 
 
 class AgentConfig(BaseModel):
@@ -33,6 +36,9 @@ class TestingConfig(BaseModel):
 
 class ScopeConfig(BaseModel):
     protected: list[str] = Field(default_factory=list)
+    denied: list[str] = Field(default_factory=list)
+    allowed: list[str] = Field(default_factory=list)
+    exclusive_allow: bool = False
     max_context_files: int = Field(default=12, ge=1, le=50)
     max_context_bytes: int = Field(default=80_000, ge=4_000, le=500_000)
 
@@ -59,6 +65,57 @@ def load_config(repo_root: Path) -> TaskToPRConfig:
         return TaskToPRConfig.model_validate(raw)
     except (OSError, tomllib.TOMLDecodeError, ValidationError) as exc:
         raise ConfigError(f"Invalid .tasktopr.toml: {exc}") from exc
+
+
+def _is_boundary_document(value: dict[str, Any]) -> bool:
+    schema = str(value.get("schema", ""))
+    if schema == AGENT_BOUNDARY_SCHEMA:
+        return True
+    if value.get("version") == 1 and "allowed_paths" in value and "policy" not in value:
+        return True
+    return False
+
+
+def load_boundary(path: Path) -> dict[str, Any]:
+    """Load a versioned agent-boundary/v1 JSON document from disk.
+
+    Issue bodies, model output and other untrusted text must never be passed
+    here. Only a caller-supplied file path is accepted.
+    """
+
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ConfigError(f"Invalid agent-boundary document: {exc}") from exc
+    if not isinstance(raw, dict) or not _is_boundary_document(raw):
+        raise ConfigError(
+            "Not an agent-boundary/v1 document. TaskToPR does not treat Issue "
+            "text or arbitrary JSON as policy."
+        )
+    return raw
+
+
+def apply_boundary(config: TaskToPRConfig, boundary: dict[str, Any]) -> TaskToPRConfig:
+    """Merge an independent agent-boundary/v1 document into local config.
+
+    Denied and protected paths are additive. Exclusive-allow, when present,
+    tightens scope and is never relaxed by Issue content.
+    """
+
+    denied = [str(item) for item in boundary.get("denied_paths", [])]
+    protected = [str(item) for item in boundary.get("protected_paths", [])]
+    allowed = [str(item) for item in boundary.get("allowed_paths", [])]
+    exclusive = bool(boundary.get("exclusive_allow", False))
+    config.scope.denied = list(dict.fromkeys([*config.scope.denied, *denied]))
+    config.scope.protected = list(
+        dict.fromkeys([*config.scope.protected, *protected, *denied])
+    )
+    if exclusive:
+        config.scope.exclusive_allow = True
+        config.scope.allowed = allowed
+    elif allowed:
+        config.scope.allowed = list(dict.fromkeys([*config.scope.allowed, *allowed]))
+    return config
 
 
 def provider_api_key(provider: str) -> str | None:

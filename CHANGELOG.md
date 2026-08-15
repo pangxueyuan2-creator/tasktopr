@@ -8,10 +8,15 @@ All notable changes are documented here. TaskToPR follows semantic versioning on
 
 - `doctor` no longer crashes with `FileNotFoundError` when `git` or `gh` are missing; it reports a clear WARN instead.
 - `is_protected` and `path_risk` now normalize backslashes so Windows-style paths (e.g. `.github\workflows\ci.yml`) are classified the same as forward-slash paths.
+- Nested `.env*` files and the root `.tasktopr.toml` are protected by default.
+- `git status --porcelain -z` review collection records both rename/copy paths.
+- Issue text cannot add allowed paths or lift protected-path policy.
 
 ### Added
 
 - Regression tests for missing `gh` in `doctor` and for path-separator normalization in protected-path checks.
+- Optional `--boundary` loader for GuardSpec `agent-boundary/v1` JSON (denied/protected additive; exclusive-allow replaces the allow list).
+- Jailbreak and exclusive-allow policy regressions.
 
 ## [0.1.0] - 2026-08-13
 

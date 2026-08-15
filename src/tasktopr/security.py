@@ -5,9 +5,14 @@ from __future__ import annotations
 import re
 import subprocess
 import time
+from functools import lru_cache
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .models import CommandResult, RiskLevel
+
+if TYPE_CHECKING:
+    from .config import TaskToPRConfig
 
 _SECRET_PATTERNS = (
     re.compile(r"gh[pousr]_[A-Za-z0-9]{20,}"),
@@ -21,7 +26,9 @@ _SECRET_PATTERNS = (
 _DEFAULT_PROTECTED = (
     ".git/**",
     ".tasktopr/**",
+    ".tasktopr.toml",
     ".env*",
+    "**/.env*",
     ".github/workflows/**",
     "**/*credential*",
     "**/*secret*",
@@ -36,6 +43,8 @@ _DEFAULT_PROTECTED = (
     "poetry.lock",
     "uv.lock",
 )
+_WORKFLOW_PATTERN = ".github/workflows/**"
+_SENSITIVE_TERMS = ("credential", "secret", "auth")
 
 _DENIED_TOKENS = {
     "rm",
@@ -85,23 +94,129 @@ def safe_path(repo_root: Path, relative_path: str) -> Path:
     return candidate
 
 
-def is_protected(relative_path: str, additional_patterns: list[str] | None = None) -> bool:
-    """Return whether a relative path is protected by default or configured policy."""
+def _path_matches(normalized: str, pattern: str) -> bool:
+    """Match a repository-relative path against a glob.
+
+    Path.match is kept so patterns such as ``Dockerfile`` and ``*.py`` still
+    match from the right. Segment-aware matching is added so ``src/*.py``
+    does not silently treat ``src/nested/deep.py`` as in-scope when callers
+    use the glob helper directly, and so ``**/.env*`` covers nested env files.
+    """
+
+    if not pattern:
+        return False
+    path = Path(normalized)
+    if path.match(pattern):
+        return True
+    return _glob_matches(normalized, pattern)
+
+
+def _glob_matches(path: str, pattern: str) -> bool:
+    normalized = pattern.replace("\\", "/").strip()
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    if not normalized or normalized in {"*", "**", "**/*"}:
+        return True
+    if normalized.endswith("/**"):
+        prefix = normalized[:-3].rstrip("/")
+        if not prefix:
+            return True
+        return path == prefix or path.startswith(prefix + "/")
+    if normalized.endswith("/") and "*" not in normalized and "?" not in normalized:
+        prefix = normalized.rstrip("/")
+        if not prefix:
+            return True
+        return path == prefix or path.startswith(prefix + "/")
+    if "*" not in normalized and "?" not in normalized:
+        return path == normalized or path.startswith(normalized + "/")
+    return _glob_regex(normalized).fullmatch(path) is not None
+
+
+@lru_cache(maxsize=256)
+def _glob_regex(pattern: str) -> re.Pattern[str]:
+    """Compile a policy glob where * and ? do not cross '/'."""
+
+    pieces: list[str] = []
+    index = 0
+    while index < len(pattern):
+        character = pattern[index]
+        if character == "*":
+            if index + 1 < len(pattern) and pattern[index + 1] == "*":
+                index += 2
+                if index < len(pattern) and pattern[index] == "/":
+                    pieces.append("(?:.*/)?")
+                    index += 1
+                else:
+                    pieces.append(".*")
+            else:
+                pieces.append("[^/]*")
+                index += 1
+        elif character == "?":
+            pieces.append("[^/]")
+            index += 1
+        else:
+            pieces.append(re.escape(character))
+            index += 1
+    return re.compile("^" + "".join(pieces) + "$")
+
+
+def is_protected(
+    relative_path: str,
+    additional_patterns: list[str] | None = None,
+    *,
+    allow_workflows: bool = False,
+) -> bool:
+    """Return whether a relative path is protected by default or configured policy.
+
+    ``allow_workflows`` opts out of only the default ``.github/workflows/**``
+    pattern. Extra protected/denied patterns from a boundary file still apply.
+    """
 
     normalized = _normalize_relpath(relative_path)
     path = Path(normalized)
-    patterns = (*_DEFAULT_PROTECTED, *(additional_patterns or []))
-    sensitive_terms = ("credential", "secret", "auth")
-    return any(path.match(pattern) for pattern in patterns) or any(
-        term in part.casefold() for part in path.parts for term in sensitive_terms
+    defaults = _DEFAULT_PROTECTED
+    if allow_workflows:
+        defaults = tuple(item for item in defaults if item != _WORKFLOW_PATTERN)
+    patterns = (*defaults, *(additional_patterns or []))
+    return any(_path_matches(normalized, pattern) for pattern in patterns) or any(
+        term in part.casefold() for part in path.parts for term in _SENSITIVE_TERMS
     )
 
 
-def path_risk(relative_path: str, additional_patterns: list[str] | None = None) -> RiskLevel:
+def policy_blocks(relative_path: str, config: TaskToPRConfig) -> bool:
+    """Return whether repository policy forbids writing ``relative_path``.
+
+    Deny/protect wins. Exclusive-allow with an empty allow list denies every
+    path. A non-empty allow list requires a match. Issue text is never read
+    here — only ``TaskToPRConfig`` (defaults, ``.tasktopr.toml``, boundary JSON).
+    """
+
+    extra = [*config.scope.protected, *config.scope.denied]
+    if is_protected(
+        relative_path,
+        extra,
+        allow_workflows=config.permissions.allow_workflows,
+    ):
+        return True
+    if config.scope.exclusive_allow and not config.scope.allowed:
+        return True
+    if config.scope.allowed:
+        normalized = _normalize_relpath(relative_path)
+        if not any(_path_matches(normalized, pattern) for pattern in config.scope.allowed):
+            return True
+    return False
+
+
+def path_risk(
+    relative_path: str,
+    additional_patterns: list[str] | None = None,
+    *,
+    allow_workflows: bool = False,
+) -> RiskLevel:
     """Classify a path; protected paths block automatic changes."""
 
     normalized = _normalize_relpath(relative_path)
-    if is_protected(normalized, additional_patterns):
+    if is_protected(normalized, additional_patterns, allow_workflows=allow_workflows):
         return RiskLevel.BLOCKED
     if normalized.startswith(".github/") or "deploy" in normalized.casefold():
         return RiskLevel.HIGH

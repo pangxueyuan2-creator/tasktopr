@@ -5,7 +5,7 @@ from __future__ import annotations
 from ..config import TaskToPRConfig
 from ..models import ChangePlan, Issue, RepositoryProfile, RiskLevel
 from ..providers import ModelProvider, parse_json_model
-from ..security import is_protected
+from ..security import policy_blocks
 from .explorer import compact_context
 
 _PLAN_SYSTEM = """You are TaskToPR's planning component. Produce only a JSON object matching this schema:
@@ -40,11 +40,9 @@ def create_plan(
     plan = parse_json_model(
         provider.complete(system=_PLAN_SYSTEM, user=user, config=config.agent), ChangePlan
     )
-    protected = [
-        step.path for step in plan.steps if is_protected(step.path, config.scope.protected)
-    ]
-    if protected:
-        raise ValueError(f"Plan targets protected paths: {', '.join(protected)}")
+    blocked = [step.path for step in plan.steps if policy_blocks(step.path, config)]
+    if blocked:
+        raise ValueError(f"Plan targets protected paths: {', '.join(blocked)}")
     if plan.risk in {RiskLevel.BLOCKED, RiskLevel.HIGH}:
         raise ValueError(
             f"Plan was not approved for automatic execution because risk is {plan.risk}."
