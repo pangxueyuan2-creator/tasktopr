@@ -39,6 +39,8 @@ def git_root(start: Path) -> Path:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=15,
         shell=False,
     )
@@ -56,6 +58,8 @@ def default_branch(repo_root: Path) -> str:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=15,
         shell=False,
     )
@@ -68,6 +72,8 @@ def default_branch(repo_root: Path) -> str:
             check=False,
             timeout=15,
             shell=False,
+            encoding="utf-8",
+            errors="replace",
         )
         if exists.returncode == 0:
             return candidate

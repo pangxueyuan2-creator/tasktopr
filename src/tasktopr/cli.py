@@ -223,6 +223,8 @@ def doctor() -> None:
                 cwd=root,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=False,
             )
             clean = not status_result.stdout.strip()
@@ -241,7 +243,12 @@ def doctor() -> None:
     else:
         try:
             gh = subprocess.run(
-                ["gh", "auth", "status"], capture_output=True, text=True, check=False
+                ["gh", "auth", "status"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=False,
             )
             table.add_row(
                 "GitHub CLI auth",

@@ -66,6 +66,8 @@ def list_changed_files(repo_root: Path) -> list[str]:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=15,
         shell=False,
     )
@@ -109,7 +111,32 @@ def _diff_check(repo_root: Path) -> str:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=15,
         shell=False,
     )
-    return redact((completed.stderr or completed.stdout).strip()[-500:])
+    remaining = [
+        line
+        for line in _combined_diff_check_text(completed).splitlines()
+        if line.strip() and not _is_autocrlf_warning(line)
+    ]
+    if not remaining:
+        return ""
+    return redact("\n".join(remaining).strip()[-500:])
+
+
+def _combined_diff_check_text(completed: subprocess.CompletedProcess[str]) -> str:
+    parts = [part for part in (completed.stderr, completed.stdout) if part]
+    return "\n".join(parts)
+
+
+def _is_autocrlf_warning(line: str) -> bool:
+    lowered = line.strip().casefold()
+    if not lowered.startswith("warning:"):
+        return False
+    return (
+        "lf will be replaced by crlf" in lowered
+        or "crlf will be replaced by lf" in lowered
+        or "the file will have its original line endings" in lowered
+    )

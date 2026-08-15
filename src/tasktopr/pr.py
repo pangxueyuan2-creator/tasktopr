@@ -127,6 +127,8 @@ def _run(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=60,
             shell=False,
         )

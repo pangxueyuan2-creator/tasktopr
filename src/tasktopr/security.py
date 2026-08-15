@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 import time
 from functools import lru_cache
 from pathlib import Path
@@ -92,6 +93,14 @@ _INLINE_INTERPRETERS = {
     "node.exe",
 }
 _INLINE_PAYLOAD_FLAGS = {"-c", "/c", "-command", "-enc", "-encodedcommand", "--eval", "-e"}
+_ACTIVE_INTERPRETER_NAMES = {
+    "python",
+    "python.exe",
+    "python3",
+    "python3.exe",
+    "py",
+    "py.exe",
+}
 
 
 class SecurityError(ValueError):
@@ -277,6 +286,21 @@ def validate_command(command: list[str]) -> None:
         raise SecurityError("Inline interpreter payloads are not allowed.")
 
 
+def _with_active_interpreter(command: list[str]) -> list[str]:
+    """Rewrite a bare interpreter name to the running process executable.
+
+    Windows CreateProcess('python') can ignore PATH and launch the Store
+    alias. Explicit paths are left unchanged.
+    """
+
+    raw = command[0]
+    if Path(raw).name != raw:
+        return command
+    if raw.lower() in _ACTIVE_INTERPRETER_NAMES:
+        return [sys.executable, *command[1:]]
+    return command
+
+
 def run_safe_command(command: list[str], cwd: Path, timeout_seconds: int) -> CommandResult:
     """Run a validated command without a shell and retain redacted, bounded evidence."""
 
@@ -293,13 +317,16 @@ def run_safe_command(command: list[str], cwd: Path, timeout_seconds: int) -> Com
 
     started = time.monotonic()
     try:
+        execution_command = _with_active_interpreter(command)
         completed = subprocess.run(
-            command,
+            execution_command,
             cwd=cwd,
             check=False,
             shell=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout_seconds,
         )
         return CommandResult(

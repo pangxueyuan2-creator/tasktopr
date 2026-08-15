@@ -54,6 +54,8 @@ def load_issue(repo_root: Path, issue_number: int, *, demo: bool = False) -> Iss
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=30,
             shell=False,
         )
