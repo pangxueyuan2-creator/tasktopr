@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from ..config import TaskToPRConfig
+from ..guardspec_handoff import enforce_guardspec_decision
 from ..models import ChangePlan, PatchRequest, RepositoryProfile
 from ..providers import ModelProvider, parse_json_model
 from ..security import SecurityError, is_protected, safe_path
@@ -58,31 +61,72 @@ def request_patch(
 def apply_patch(
     patch: PatchRequest, profile: RepositoryProfile, config: TaskToPRConfig
 ) -> list[str]:
-    """Apply a validated patch atomically per operation, refusing ambiguous replacements."""
+    """Preflight every operation in memory, then write all or roll back."""
 
-    changed: list[str] = []
+    enforce_guardspec_decision(profile.root)
+
+    staged: dict[Path, str] = {}
+    originals: dict[Path, str | None] = {}
+    order: list[Path] = []
+
+    def current_text(path: Path) -> str | None:
+        if path in staged:
+            return staged[path]
+        if path not in originals:
+            if path.is_file():
+                originals[path] = path.read_text(encoding="utf-8")
+            elif path.exists():
+                raise SecurityError(f"Refusing to edit non-regular path: {path}")
+            else:
+                originals[path] = None
+        return originals[path]
+
     for operation in patch.operations:
         if is_protected(operation.path, config.scope.protected):
             raise SecurityError(f"Refusing to edit protected path: {operation.path}")
         path = safe_path(profile.root, operation.path)
+        if path not in order:
+            order.append(path)
         if operation.kind == "create":
-            if path.exists():
+            if current_text(path) is not None:
                 raise SecurityError(
                     f"Refusing to overwrite existing path with create: {operation.path}"
                 )
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(operation.new_text, encoding="utf-8")
-        else:
-            if not path.is_file():
-                raise SecurityError(f"Replace target does not exist: {operation.path}")
-            original = path.read_text(encoding="utf-8")
-            occurrences = original.count(operation.old_text)
-            if occurrences != 1:
-                raise SecurityError(
-                    f"Expected one exact old_text match in {operation.path}; found {occurrences}."
-                )
-            path.write_text(
-                original.replace(operation.old_text, operation.new_text, 1), encoding="utf-8"
+            staged[path] = operation.new_text
+            continue
+        original = current_text(path)
+        if original is None:
+            raise SecurityError(f"Replace target does not exist: {operation.path}")
+        occurrences = original.count(operation.old_text)
+        if occurrences != 1:
+            raise SecurityError(
+                f"Expected one exact old_text match in {operation.path}; found {occurrences}."
             )
-        changed.append(operation.path)
-    return changed
+        staged[path] = original.replace(operation.old_text, operation.new_text, 1)
+
+    written: list[tuple[Path, str | None]] = []
+    try:
+        for path in order:
+            content = staged[path]
+            prior = originals.get(path)
+            if prior is None:
+                path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            written.append((path, prior))
+    except Exception:
+        rollback_errors: list[str] = []
+        for path, prior in reversed(written):
+            try:
+                if prior is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    path.write_text(prior, encoding="utf-8")
+            except OSError as exc:
+                rollback_errors.append(f"{path}: {exc}")
+        if rollback_errors:
+            raise SecurityError(
+                "Patch apply failed and rollback was incomplete: " + "; ".join(rollback_errors)
+            ) from None
+        raise
+
+    return [operation.path for operation in patch.operations]

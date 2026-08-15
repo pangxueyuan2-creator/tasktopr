@@ -17,6 +17,7 @@ from .agents import (
 )
 from .config import TaskToPRConfig
 from .events import RunJournal
+from .guardspec_handoff import load_guardspec_decision
 from .models import CommandResult, Issue, RunPhase, RunResult
 from .pr import commit_changes, create_branch, push_and_create_pr
 from .providers import ModelProvider
@@ -105,7 +106,15 @@ def fix_issue(
         journal.event(RunPhase.EDITING_FILE, "Requesting and applying a policy-checked patch.")
         patch = request_patch(provider, plan, profile, config)
         changed_files = apply_patch(patch, profile, config)
-        journal.write_json("changes.json", {"patch": patch, "changed_files": changed_files})
+        changes_record: dict[str, object] = {"patch": patch, "changed_files": changed_files}
+        guardspec = load_guardspec_decision(profile.root)
+        if guardspec is not None:
+            changes_record["guardspec"] = {
+                "schema_version": guardspec.get("schema_version"),
+                "policy_digest": guardspec.get("policy_digest"),
+                "decision": guardspec.get("decision"),
+            }
+        journal.write_json("changes.json", changes_record)
         journal.event(RunPhase.RUNNING_TEST, "Executing discovered quality commands.")
         tests = run_quality_checks(profile, config)
         journal.write_json("test-results.json", tests)

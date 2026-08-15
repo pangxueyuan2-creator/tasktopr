@@ -60,7 +60,7 @@ These are separate projects that answer different questions. You can use any com
 - [GuardSpec](https://github.com/pangxueyuan2-creator/guardspec) — **before** work starts: check whether the repository’s explicit agent rules allow the proposed paths/commands
 - [PatchWitness](https://github.com/pangxueyuan2-creator/patchwitness) — **after** a change exists: produce a Change Passport that records scope, protected paths, and which checks actually ran
 
-TaskToPR does not depend on either tool.
+TaskToPR does not depend on either tool. If `GUARDSPEC_CHECK_JSON` or `.guardspec-check.json` is present, apply refuses anything other than `decision: allow` and records `policy_digest` in the run evidence. Absence of that file keeps TaskToPR independent.
 
 ## Demo
 
