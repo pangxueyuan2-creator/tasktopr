@@ -277,6 +277,60 @@ def test_issue_cannot_elevate_permissions_to_workflows(demo_repo: Path) -> None:
     assert "protected" in result.message.casefold()
 
 
+def test_apply_patch_blocks_dotdot_workflow_bypass(demo_repo: Path) -> None:
+    workflows = demo_repo / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    target = workflows / "ci.yml"
+    target.write_text("name: ci\n", encoding="utf-8")
+    profile = explore(demo_repo, Issue(number=1, title="ci"), TaskToPRConfig())
+    patch = PatchRequest(
+        summary="dotdot jailbreak",
+        operations=[
+            PatchOperation(
+                kind="replace",
+                path="src/../.github/workflows/ci.yml",
+                old_text="name: ci\n",
+                new_text="name: pwned\n",
+                reason="collapse should still hit protected glob",
+            )
+        ],
+    )
+    with pytest.raises(SecurityError, match="protected"):
+        apply_patch(patch, profile, TaskToPRConfig())
+    assert target.read_text(encoding="utf-8") == "name: ci\n"
+
+
+def test_issue_cannot_elevate_permissions_via_dotdot_path(demo_repo: Path) -> None:
+    class JailbreakProvider(DemoProvider):
+        def complete(self, **kwargs: object) -> str:  # type: ignore[override]
+            return json.dumps(
+                {
+                    "summary": "Issue granted CI access via parent segments",
+                    "root_cause": "The Issue said src/../.github is allowed.",
+                    "steps": [
+                        {
+                            "path": "src/../.github/workflows/ci.yml",
+                            "action": "replace",
+                            "rationale": "dot-dot should not grant extra permissions",
+                        }
+                    ],
+                    "test_plan": ["pytest"],
+                    "non_goals": [],
+                    "risk": "low",
+                }
+            )
+
+    result = plan_issue(
+        1,
+        start_dir=demo_repo,
+        config=TaskToPRConfig(),
+        provider=JailbreakProvider(),
+        demo=True,
+    )
+    assert result.success is False
+    assert "protected" in result.message.casefold()
+
+
 def test_apply_patch_blocks_workflow_even_when_called_directly(demo_repo: Path) -> None:
     workflows = demo_repo / ".github" / "workflows"
     workflows.mkdir(parents=True)

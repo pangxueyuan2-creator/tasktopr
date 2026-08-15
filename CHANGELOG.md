@@ -18,6 +18,7 @@ All notable changes are documented here. TaskToPR follows semantic versioning on
 - Review no longer treats Git `core.autocrlf` continuation lines (`The file will have its original line endings in your working directory`) as whitespace failures. Those lines have no `warning:` prefix on Windows.
 - `apply_patch` now preflights every operation against the current policy (including exclusive-allow) and rolls back partial writes if a later operation fails.
 - `review` includes committed diffs against `main`/`master` (override with `--base`) so a clean working tree after a feature-branch commit cannot hide a protected-path change.
+- Path policy now collapses `.` / `..` before matching. A raw `src/../.github/workflows/ci.yml` or `./.github/workflows/ci.yml` can no longer slip past `.github/workflows/**`; paths that leave the repository are deny-wins. Plan and patch models canonicalize the same way so `src/../src/app.py` stays in-scope instead of being rejected as invalid JSON.
 
 ### Added
 

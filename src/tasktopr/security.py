@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .models import CommandResult, RiskLevel
+from .paths import PathSecurityError, canonicalize_repo_relpath, normalize_relpath
 
 if TYPE_CHECKING:
     from .config import TaskToPRConfig
@@ -103,7 +104,7 @@ _ACTIVE_INTERPRETER_NAMES = {
 }
 
 
-class SecurityError(ValueError):
+class SecurityError(PathSecurityError):
     """Raised when an operation crosses TaskToPR's default security boundary."""
 
 
@@ -119,16 +120,18 @@ def redact(value: str) -> str:
 def _normalize_relpath(relative_path: str) -> str:
     """Convert backslashes to forward slashes for consistent pattern matching."""
 
-    return relative_path.replace("\\", "/")
+    return normalize_relpath(relative_path)
 
 
 def safe_path(repo_root: Path, relative_path: str) -> Path:
     """Resolve a user/model path and prove it remains within the repository root."""
 
-    if not relative_path or Path(relative_path).is_absolute():
-        raise SecurityError("Only non-empty repository-relative paths are allowed.")
+    try:
+        collapsed = canonicalize_repo_relpath(relative_path)
+    except PathSecurityError as exc:
+        raise SecurityError(str(exc)) from exc
     root = repo_root.resolve()
-    candidate = (root / relative_path).resolve()
+    candidate = (root / collapsed).resolve()
     if candidate == root or root not in candidate.parents:
         raise SecurityError(f"Path escapes the repository root: {relative_path}")
     return candidate
@@ -212,7 +215,10 @@ def is_protected(
     pattern. Extra protected/denied patterns from a boundary file still apply.
     """
 
-    normalized = _normalize_relpath(relative_path)
+    try:
+        normalized = canonicalize_repo_relpath(relative_path)
+    except PathSecurityError:
+        return True
     path = Path(normalized)
     defaults = _DEFAULT_PROTECTED
     if allow_workflows:
@@ -231,9 +237,13 @@ def policy_blocks(relative_path: str, config: TaskToPRConfig) -> bool:
     here — only ``TaskToPRConfig`` (defaults, ``.tasktopr.toml``, boundary JSON).
     """
 
+    try:
+        normalized = canonicalize_repo_relpath(relative_path)
+    except PathSecurityError:
+        return True
     extra = [*config.scope.protected, *config.scope.denied]
     if is_protected(
-        relative_path,
+        normalized,
         extra,
         allow_workflows=config.permissions.allow_workflows,
     ):
@@ -241,7 +251,6 @@ def policy_blocks(relative_path: str, config: TaskToPRConfig) -> bool:
     if config.scope.exclusive_allow and not config.scope.allowed:
         return True
     if config.scope.allowed:
-        normalized = _normalize_relpath(relative_path)
         if not any(_path_matches(normalized, pattern) for pattern in config.scope.allowed):
             return True
     return False
@@ -255,7 +264,10 @@ def path_risk(
 ) -> RiskLevel:
     """Classify a path; protected paths block automatic changes."""
 
-    normalized = _normalize_relpath(relative_path)
+    try:
+        normalized = canonicalize_repo_relpath(relative_path)
+    except PathSecurityError:
+        return RiskLevel.BLOCKED
     if is_protected(normalized, additional_patterns, allow_workflows=allow_workflows):
         return RiskLevel.BLOCKED
     if normalized.startswith(".github/") or "deploy" in normalized.casefold():

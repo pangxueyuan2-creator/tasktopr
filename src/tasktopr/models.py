@@ -7,6 +7,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field, field_validator
 
+from .paths import PathSecurityError, canonicalize_repo_relpath
+
 
 class RiskLevel(StrEnum):
     LOW = "low"
@@ -57,9 +59,12 @@ class PlanStep(BaseModel):
     @field_validator("path")
     @classmethod
     def forbid_absolute_path(cls, value: str) -> str:
-        if Path(value).is_absolute() or ".." in Path(value).parts:
-            raise ValueError("Plan paths must be repository-relative and cannot traverse upward.")
-        return value
+        try:
+            return canonicalize_repo_relpath(value)
+        except PathSecurityError as exc:
+            raise ValueError(
+                "Plan paths must be repository-relative and cannot traverse upward."
+            ) from exc
 
 
 class ChangePlan(BaseModel):
@@ -81,9 +86,12 @@ class PatchOperation(BaseModel):
     @field_validator("path")
     @classmethod
     def validate_relative_path(cls, value: str) -> str:
-        if Path(value).is_absolute() or ".." in Path(value).parts:
-            raise ValueError("Patch path must be repository-relative and cannot traverse upward.")
-        return value
+        try:
+            return canonicalize_repo_relpath(value)
+        except PathSecurityError as exc:
+            raise ValueError(
+                "Patch path must be repository-relative and cannot traverse upward."
+            ) from exc
 
 
 class PatchRequest(BaseModel):

@@ -7,7 +7,7 @@ from pathlib import Path
 from ..config import TaskToPRConfig
 from ..models import ChangePlan, PatchRequest, RepositoryProfile
 from ..providers import ModelProvider, parse_json_model
-from ..security import SecurityError, policy_blocks, safe_path
+from ..security import SecurityError, canonicalize_repo_relpath, policy_blocks, safe_path
 
 _PATCH_SYSTEM = """You are TaskToPR's coding component. Produce only a JSON object matching this schema:
 {
@@ -29,7 +29,7 @@ def request_patch(
 ) -> PatchRequest:
     """Request a patch restricted to the plan's target files."""
 
-    targets = [step.path for step in plan.steps]
+    targets = [canonicalize_repo_relpath(step.path) for step in plan.steps]
     sources: list[str] = []
     for path in targets:
         if policy_blocks(path, config):
@@ -48,7 +48,9 @@ def request_patch(
         provider.complete(system=_PATCH_SYSTEM, user=user, config=config.agent), PatchRequest
     )
     extra_paths = [
-        operation.path for operation in patch.operations if operation.path not in targets
+        canonicalize_repo_relpath(operation.path)
+        for operation in patch.operations
+        if canonicalize_repo_relpath(operation.path) not in targets
     ]
     if extra_paths:
         raise SecurityError(
@@ -79,9 +81,10 @@ def apply_patch(
         return originals[path]
 
     for operation in patch.operations:
-        if policy_blocks(operation.path, config):
+        canonical = canonicalize_repo_relpath(operation.path)
+        if policy_blocks(canonical, config):
             raise SecurityError(f"Refusing to edit protected path: {operation.path}")
-        path = safe_path(profile.root, operation.path)
+        path = safe_path(profile.root, canonical)
         if path not in order:
             order.append(path)
         if operation.kind == "create":
