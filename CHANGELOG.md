@@ -7,6 +7,11 @@ All notable changes are documented here. TaskToPR follows semantic versioning on
 ### Fixed
 
 - `doctor` no longer crashes with `FileNotFoundError` when `git` or `gh` are missing; it reports a clear WARN instead.
+- `is_protected` and `path_risk` now normalize backslashes so Windows-style paths (e.g. `.github\workflows\ci.yml`) are classified the same as forward-slash paths.
+
+### Added
+
+- Regression tests for missing `gh` in `doctor` and for path-separator normalization in protected-path checks.
 
 ## [0.1.0] - 2026-08-13
 
