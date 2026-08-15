@@ -2,6 +2,12 @@
 
 All notable changes are documented here. TaskToPR follows semantic versioning once it reaches a stable `1.0.0` release.
 
+## Unreleased
+
+### Fixed
+
+- `doctor` no longer crashes with `FileNotFoundError` when `git` or `gh` are missing; it reports a clear WARN instead.
+
 ## [0.1.0] - 2026-08-13
 
 ### Added
