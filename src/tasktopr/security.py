@@ -67,6 +67,12 @@ def redact(value: str) -> str:
     return result
 
 
+def _normalize_relpath(relative_path: str) -> str:
+    """Convert backslashes to forward slashes for consistent pattern matching."""
+
+    return relative_path.replace("\\", "/")
+
+
 def safe_path(repo_root: Path, relative_path: str) -> Path:
     """Resolve a user/model path and prove it remains within the repository root."""
 
@@ -82,7 +88,8 @@ def safe_path(repo_root: Path, relative_path: str) -> Path:
 def is_protected(relative_path: str, additional_patterns: list[str] | None = None) -> bool:
     """Return whether a relative path is protected by default or configured policy."""
 
-    path = Path(relative_path)
+    normalized = _normalize_relpath(relative_path)
+    path = Path(normalized)
     patterns = (*_DEFAULT_PROTECTED, *(additional_patterns or []))
     sensitive_terms = ("credential", "secret", "auth")
     return any(path.match(pattern) for pattern in patterns) or any(
@@ -93,9 +100,10 @@ def is_protected(relative_path: str, additional_patterns: list[str] | None = Non
 def path_risk(relative_path: str, additional_patterns: list[str] | None = None) -> RiskLevel:
     """Classify a path; protected paths block automatic changes."""
 
-    if is_protected(relative_path, additional_patterns):
+    normalized = _normalize_relpath(relative_path)
+    if is_protected(normalized, additional_patterns):
         return RiskLevel.BLOCKED
-    if relative_path.startswith(".github/") or "deploy" in relative_path.casefold():
+    if normalized.startswith(".github/") or "deploy" in normalized.casefold():
         return RiskLevel.HIGH
     return RiskLevel.LOW
 
