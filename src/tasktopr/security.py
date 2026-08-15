@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -163,6 +164,22 @@ def refuse_aliased_write(path: Path, relative_path: str) -> None:
             raise SecurityError(f"Refusing to edit a hard-linked file: {relative_path}")
 
 
+def case_insensitive_paths() -> bool:
+    """Return True when policy globs must fold case like the host filesystem.
+
+    Windows volumes treat ``.GITHUB/WORKFLOWS/ci.yml`` as
+    ``.github/workflows/ci.yml``. ``Path.match`` is already OS-aware; the
+    prefix/regex fallback must fold the same way or mixed-case spellings
+    miss ``src/**`` / ``.github/workflows/**``. Linux stays case-sensitive.
+    """
+
+    return os.name == "nt"
+
+
+def _fold(text: str) -> str:
+    return text.casefold() if case_insensitive_paths() else text
+
+
 def _path_matches(normalized: str, pattern: str) -> bool:
     """Match a repository-relative path against a glob.
 
@@ -186,23 +203,27 @@ def _glob_matches(path: str, pattern: str) -> bool:
         normalized = normalized[2:]
     if not normalized or normalized in {"*", "**", "**/*"}:
         return True
+    path_cmp = _fold(path)
     if normalized.endswith("/**"):
         prefix = normalized[:-3].rstrip("/")
         if not prefix:
             return True
-        return path == prefix or path.startswith(prefix + "/")
+        prefix_cmp = _fold(prefix)
+        return path_cmp == prefix_cmp or path_cmp.startswith(prefix_cmp + "/")
     if normalized.endswith("/") and "*" not in normalized and "?" not in normalized:
         prefix = normalized.rstrip("/")
         if not prefix:
             return True
-        return path == prefix or path.startswith(prefix + "/")
+        prefix_cmp = _fold(prefix)
+        return path_cmp == prefix_cmp or path_cmp.startswith(prefix_cmp + "/")
     if "*" not in normalized and "?" not in normalized:
-        return path == normalized or path.startswith(normalized + "/")
-    return _glob_regex(normalized).fullmatch(path) is not None
+        exact = _fold(normalized)
+        return path_cmp == exact or path_cmp.startswith(exact + "/")
+    return _glob_regex(normalized, case_insensitive_paths()).fullmatch(path) is not None
 
 
 @lru_cache(maxsize=256)
-def _glob_regex(pattern: str) -> re.Pattern[str]:
+def _glob_regex(pattern: str, ignore_case: bool = False) -> re.Pattern[str]:
     """Compile a policy glob where * and ? do not cross '/'."""
 
     pieces: list[str] = []
@@ -226,7 +247,8 @@ def _glob_regex(pattern: str) -> re.Pattern[str]:
         else:
             pieces.append(re.escape(character))
             index += 1
-    return re.compile("^" + "".join(pieces) + "$")
+    flags = re.IGNORECASE if ignore_case else 0
+    return re.compile("^" + "".join(pieces) + "$", flags)
 
 
 def is_protected(
@@ -296,7 +318,8 @@ def path_risk(
         return RiskLevel.BLOCKED
     if is_protected(normalized, additional_patterns, allow_workflows=allow_workflows):
         return RiskLevel.BLOCKED
-    if normalized.startswith(".github/") or "deploy" in normalized.casefold():
+    github_prefix = _fold(".github/")
+    if _fold(normalized).startswith(github_prefix) or "deploy" in normalized.casefold():
         return RiskLevel.HIGH
     return RiskLevel.LOW
 

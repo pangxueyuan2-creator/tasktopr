@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ from tasktopr.config import (
 )
 from tasktopr.models import PatchOperation, PlanStep, RiskLevel
 from tasktopr.paths import PathSecurityError, resolved_repo_relpath
+import tasktopr.security as security_mod
 from tasktopr.security import (
     canonicalize_repo_relpath,
     is_protected,
@@ -72,6 +74,30 @@ def test_policy_blocks_allowed_scope() -> None:
     assert policy_blocks("src/app.py", config) is False
     assert policy_blocks("README.md", config) is True
     assert policy_blocks(".github/workflows/ci.yml", config) is True
+
+
+def test_glob_matches_folds_case_when_filesystem_does(monkeypatch) -> None:
+    monkeypatch.setattr(security_mod, "case_insensitive_paths", lambda: True)
+    assert security_mod._glob_matches("SRC/app.py", "src/**") is True
+    assert security_mod._glob_matches(".GITHUB/WORKFLOWS/ci.yml", ".github/workflows/**") is True
+    assert security_mod._glob_matches(".GIT/config", ".git/**") is True
+    assert security_mod._glob_matches("SRC/APP.PY", "src/*.py") is True
+    assert security_mod._glob_matches("SRC/nested/DEEP.PY", "src/*.py") is False
+    monkeypatch.setattr(security_mod, "case_insensitive_paths", lambda: False)
+    assert security_mod._glob_matches("SRC/app.py", "src/**") is False
+    assert security_mod._glob_matches(".GITHUB/WORKFLOWS/ci.yml", ".github/workflows/**") is False
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows filesystem folds case")
+def test_windows_mixed_case_workflow_is_protected() -> None:
+    assert is_protected(".GITHUB/WORKFLOWS/ci.yml") is True
+    assert is_protected(".github/WORKFLOWS/ci.yml") is True
+    assert path_risk(".GITHUB/ISSUE_TEMPLATE/bug.md") == RiskLevel.HIGH
+    config = TaskToPRConfig()
+    config.scope.exclusive_allow = True
+    config.scope.allowed = ["src/**"]
+    assert policy_blocks("SRC/app.py", config) is False
+    assert policy_blocks(".GITHUB/WORKFLOWS/ci.yml", config) is True
 
 
 def test_load_and_apply_agent_boundary(tmp_path: Path) -> None:

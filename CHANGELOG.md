@@ -20,6 +20,7 @@ All notable changes are documented here. TaskToPR follows semantic versioning on
 - `review` includes committed diffs against `main`/`master` (override with `--base`) so a clean working tree after a feature-branch commit cannot hide a protected-path change.
 - Path policy now collapses `.` / `..` before matching. A raw `src/../.github/workflows/ci.yml` or `./.github/workflows/ci.yml` can no longer slip past `.github/workflows/**`; paths that leave the repository are deny-wins. Plan and patch models canonicalize the same way so `src/../src/app.py` stays in-scope instead of being rejected as invalid JSON.
 - `apply_patch` re-checks policy on the resolved on-disk path and refuses symlink / hard-link writes. A Windows 8.3 name, in-repo symlink, or hard link to `.github/workflows/ci.yml` can no longer be written through an allowed spelling.
+- Prefix and regex path matching now fold case on Windows, matching `Path.match` and NTFS. Mixed-case `.GITHUB/WORKFLOWS/ci.yml` stays protected and `SRC/app.py` stays inside exclusive `src/**`. Linux stays case-sensitive.
 
 ### Added
 
