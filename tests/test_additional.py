@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 import subprocess
 from pathlib import Path
 from typing import ClassVar
@@ -186,6 +187,28 @@ def test_cli_doctor_runs_inside_repository(
     result = RUNNER.invoke(app, ["doctor"])
     assert result.exit_code == 0
     assert "TaskToPR doctor" in result.stdout
+
+
+def test_cli_doctor_survives_missing_gh(
+    demo_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """doctor must not crash when the GitHub CLI binary is absent."""
+
+    monkeypatch.chdir(demo_repo)
+    real_which = shutil.which
+
+    def fake_which(cmd: str, mode: int = os.F_OK, path: str | None = None) -> str | None:  # type: ignore[name-defined]
+        if cmd == "gh":
+            return None
+        return real_which(cmd, mode=mode, path=path)
+
+    import os
+
+    monkeypatch.setattr(shutil, "which", fake_which)
+    result = RUNNER.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    assert "TaskToPR doctor" in result.stdout
+    assert "gh not found" in result.stdout or "WARN" in result.stdout
 
 
 def test_cli_fix_dry_run_and_review(demo_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
