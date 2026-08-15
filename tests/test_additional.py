@@ -403,6 +403,7 @@ def test_cli_review_applies_boundary(demo_repo: Path, monkeypatch: pytest.Monkey
     help_result = RUNNER.invoke(app, ["review", "--help"])
     assert help_result.exit_code == 0
     assert "--boundary" in help_result.stdout
+    assert "--base" in help_result.stdout
     unconstrained = RUNNER.invoke(app, ["review"])
     assert unconstrained.exit_code == 0
     boundary = demo_repo.parent / "review-boundary.json"
@@ -424,6 +425,9 @@ def test_cli_review_applies_boundary(demo_repo: Path, monkeypatch: pytest.Monkey
     constrained = RUNNER.invoke(app, ["review", "--boundary", str(boundary)])
     assert constrained.exit_code == 1
     assert "Protected files changed" in constrained.stdout
+    missing_base = RUNNER.invoke(app, ["review", "--base", "definitely-not-a-ref"])
+    assert missing_base.exit_code == 2
+    assert "not a valid Git ref" in missing_base.stdout
 
 
 def test_orchestrator_records_provider_failure(demo_repo: Path) -> None:

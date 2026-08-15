@@ -104,3 +104,29 @@ def test_write_failure_removes_created_file_and_parent(
 
     assert target.read_text(encoding="utf-8") == before
     assert not (demo_repo / "new").exists()
+
+
+def test_preflight_exclusive_allow_does_not_apply_earlier_operation(demo_repo: Path) -> None:
+    target = demo_repo / "calculator.py"
+    before = target.read_text(encoding="utf-8")
+    config = TaskToPRConfig()
+    config.scope.exclusive_allow = True
+    config.scope.allowed = ["calculator.py"]
+    patch = PatchRequest(
+        summary="later path is outside exclusive allow",
+        operations=[
+            _replace("calculator.py", "return numerator / denominator", "return 0.0"),
+            PatchOperation(
+                kind="create",
+                path="out/of/scope.py",
+                new_text="sneak\n",
+                reason="must not apply",
+            ),
+        ],
+    )
+
+    with pytest.raises(SecurityError, match="protected path"):
+        apply_patch(patch, _profile(demo_repo), config)
+
+    assert target.read_text(encoding="utf-8") == before
+    assert not (demo_repo / "out").exists()

@@ -16,6 +16,8 @@ All notable changes are documented here. TaskToPR follows semantic versioning on
 - `review` now accepts `--boundary` so standalone review uses the same agent-boundary/v1 path policy as `plan` and `fix`.
 - Independent PatchWitness evidence under `.patchwitness/` is ignored by working-tree review collection, and `.patchwitness/**` is protected by default so a model cannot write there as a requested path.
 - Review no longer treats Git `core.autocrlf` continuation lines (`The file will have its original line endings in your working directory`) as whitespace failures. Those lines have no `warning:` prefix on Windows.
+- `apply_patch` now preflights every operation against the current policy (including exclusive-allow) and rolls back partial writes if a later operation fails.
+- `review` includes committed diffs against `main`/`master` (override with `--base`) so a clean working tree after a feature-branch commit cannot hide a protected-path change.
 
 ### Added
 

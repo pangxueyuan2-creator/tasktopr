@@ -15,14 +15,15 @@ def review_changes(
     changed_files: list[str],
     tests: list[CommandResult],
     config: TaskToPRConfig,
+    base: str | None = None,
 ) -> ReviewResult:
-    """Review a working tree with deterministic scope and test gates."""
+    """Review working-tree and committed diffs with deterministic scope gates."""
 
     findings: list[str] = []
     protected = [path for path in changed_files if policy_blocks(path, config)]
     if protected:
         findings.append(f"Protected files changed: {', '.join(protected)}")
-    untracked_or_modified = list_changed_files(repo_root)
+    untracked_or_modified = list_changed_files(repo_root, base=base)
     unexpected = sorted(set(untracked_or_modified) - set(changed_files))
     if unexpected:
         findings.append(
@@ -33,7 +34,7 @@ def review_changes(
         findings.append(
             "At least one required test/quality command failed, timed out, or was unavailable."
         )
-    whitespace_problem = _diff_check(repo_root)
+    whitespace_problem = _diff_check(repo_root, base=base)
     if whitespace_problem:
         findings.append(f"Git whitespace check failed: {whitespace_problem}")
     risk = RiskLevel.LOW
@@ -52,14 +53,61 @@ def review_changes(
     )
 
 
-def list_changed_files(repo_root: Path) -> list[str]:
-    """Return working-tree paths from ``git status --porcelain -z``.
+_IGNORED_CHANGE_PARTS = {
+    ".tasktopr",
+    ".patchwitness",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+}
 
-    Rename and copy entries contribute both the destination and the source so
-    policy cannot miss a protected origin. ``.tasktopr`` and ``.patchwitness``
-    evidence/cache directories are ignored.
-    """
 
+def _rev_exists(repo_root: Path, ref: str) -> bool:
+    completed = subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", ref],
+        cwd=repo_root,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=15,
+        shell=False,
+    )
+    return completed.returncode == 0
+
+
+def default_review_base(repo_root: Path) -> str | None:
+    """Prefer ``main``/``master`` so committed feature-branch diffs stay visible."""
+
+    for candidate in ("main", "master"):
+        if _rev_exists(repo_root, candidate):
+            return candidate
+    return None
+
+
+def resolve_review_base(repo_root: Path, base: str | None) -> str | None:
+    """Return an explicit base, or the default branch, after verifying it exists."""
+
+    if base is not None:
+        if not base.strip():
+            raise RuntimeError("Review --base must be a non-empty Git ref.")
+        if not _rev_exists(repo_root, base):
+            raise RuntimeError(f"Review --base is not a valid Git ref: {base}")
+        return base
+    return default_review_base(repo_root)
+
+
+def _normalize_changed_path(item: str) -> str:
+    normalized = item.replace("\\", "/").strip()
+    if not normalized:
+        return ""
+    if any(part in _IGNORED_CHANGE_PARTS for part in Path(normalized).parts):
+        return ""
+    return normalized
+
+
+def _porcelain_changed_files(repo_root: Path) -> list[str]:
     completed = subprocess.run(
         ["git", "status", "--porcelain", "-z", "--untracked-files=all"],
         cwd=repo_root,
@@ -73,13 +121,6 @@ def list_changed_files(repo_root: Path) -> list[str]:
     )
     if completed.returncode != 0:
         return ["[git-status-unavailable]"]
-    ignored_parts = {
-        ".tasktopr",
-        ".patchwitness",
-        "__pycache__",
-        ".pytest_cache",
-        ".mypy_cache",
-    }
     changed: list[str] = []
     tokens = completed.stdout.split("\0")
     index = 0
@@ -98,15 +139,58 @@ def list_changed_files(repo_root: Path) -> list[str]:
                 paths.append(tokens[index])
                 index += 1
         for item in paths:
-            normalized = item.replace("\\", "/").strip()
-            if normalized and not any(part in ignored_parts for part in Path(normalized).parts):
+            normalized = _normalize_changed_path(item)
+            if normalized:
                 changed.append(normalized)
+    return changed
+
+
+def _diff_changed_files(repo_root: Path, base: str) -> list[str]:
+    completed = subprocess.run(
+        ["git", "diff", "--name-only", "-z", "--no-renames", base],
+        cwd=repo_root,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=15,
+        shell=False,
+    )
+    if completed.returncode != 0:
+        return ["[git-diff-unavailable]"]
+    changed: list[str] = []
+    for item in completed.stdout.split("\0"):
+        normalized = _normalize_changed_path(item)
+        if normalized:
+            changed.append(normalized)
+    return changed
+
+
+def list_changed_files(repo_root: Path, base: str | None = None) -> list[str]:
+    """Return working-tree paths plus committed paths since ``base``.
+
+    Rename and copy entries contribute both the destination and the source so
+    policy cannot miss a protected origin. ``.tasktopr`` and ``.patchwitness``
+    evidence/cache directories are ignored. When ``base`` is omitted, ``main``
+    or ``master`` is used if that ref exists so a clean working tree after a
+    feature-branch commit is still reviewed.
+    """
+
+    resolved = resolve_review_base(repo_root, base)
+    changed = _porcelain_changed_files(repo_root)
+    if resolved:
+        changed.extend(_diff_changed_files(repo_root, resolved))
     return sorted(dict.fromkeys(changed))
 
 
-def _diff_check(repo_root: Path) -> str:
+def _diff_check(repo_root: Path, base: str | None = None) -> str:
+    command = ["git", "diff", "--check"]
+    resolved = resolve_review_base(repo_root, base)
+    if resolved:
+        command.append(resolved)
     completed = subprocess.run(
-        ["git", "diff", "--check"],
+        command,
         cwd=repo_root,
         check=False,
         capture_output=True,

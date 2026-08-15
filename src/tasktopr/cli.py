@@ -184,8 +184,19 @@ def review(
             help="Independent agent-boundary/v1 JSON file. Issue text is never treated as policy.",
         ),
     ] = None,
+    base: Annotated[
+        str | None,
+        typer.Option(
+            "--base",
+            help=(
+                "Git ref whose committed diff is included in review. "
+                "Defaults to main or master when that ref exists. "
+                "Use --base HEAD for working-tree-only review."
+            ),
+        ),
+    ] = None,
 ) -> None:
-    """Review current working-tree changes against scope, safety and test evidence gates."""
+    """Review working-tree and committed diffs against scope and safety gates."""
 
     try:
         root = git_root(Path.cwd())
@@ -195,8 +206,8 @@ def review(
                 config,
                 load_boundary(boundary if boundary.is_absolute() else root / boundary),
             )
-        changed = list_changed_files(root)
-        result = review_changes(root, changed, [], config)
+        changed = list_changed_files(root, base=base)
+        result = review_changes(root, changed, [], config, base=base)
     except (ConfigError, RuntimeError) as exc:
         console.print(f"[bold red]Review unavailable:[/] {exc}")
         raise typer.Exit(2) from exc

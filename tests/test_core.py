@@ -321,6 +321,28 @@ def test_list_changed_files_includes_rename_source_and_destination(demo_repo: Pa
     assert "renamed calculator.py" in changed
 
 
+def test_review_blocks_committed_protected_change_on_feature_branch(demo_repo: Path) -> None:
+    subprocess.run(["git", "checkout", "-b", "sneak"], cwd=demo_repo, check=True, capture_output=True)
+    workflow = demo_repo / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True, exist_ok=True)
+    workflow.write_text("name: sneak\n", encoding="utf-8")
+    subprocess.run(["git", "add", ".github/workflows/ci.yml"], cwd=demo_repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "sneak protected ci"],
+        cwd=demo_repo,
+        check=True,
+        capture_output=True,
+    )
+    changed = list_changed_files(demo_repo)
+    assert ".github/workflows/ci.yml" in changed
+    result = review_changes(demo_repo, changed, [], TaskToPRConfig())
+    assert result.approved is False
+    assert result.scope_ok is False
+    assert any("ci.yml" in finding for finding in result.findings)
+    working_tree_only = list_changed_files(demo_repo, base="HEAD")
+    assert working_tree_only == []
+
+
 def test_review_uses_git_changes_not_existing_protected_files(demo_repo: Path) -> None:
     (demo_repo / ".env").write_text("SECRET=1\n", encoding="utf-8")
     subprocess.run(["git", "add", ".env"], cwd=demo_repo, check=True, capture_output=True)
