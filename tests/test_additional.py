@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -197,12 +198,10 @@ def test_cli_doctor_survives_missing_gh(
     monkeypatch.chdir(demo_repo)
     real_which = shutil.which
 
-    def fake_which(cmd: str, mode: int = os.F_OK, path: str | None = None) -> str | None:  # type: ignore[name-defined]
+    def fake_which(cmd: str, mode: int = os.F_OK, path: str | None = None) -> str | None:
         if cmd == "gh":
             return None
         return real_which(cmd, mode=mode, path=path)
-
-    import os
 
     monkeypatch.setattr(shutil, "which", fake_which)
     result = RUNNER.invoke(app, ["doctor"])
