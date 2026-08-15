@@ -174,22 +174,39 @@ def doctor() -> None:
         root = git_root(Path.cwd())
         config = load_config(root)
         table.add_row("Git repository", "OK", str(root))
-        status_result = subprocess.run(
-            ["git", "status", "--porcelain"], cwd=root, capture_output=True, text=True, check=False
-        )
-        clean = not status_result.stdout.strip()
-        table.add_row(
-            "Git working tree", "OK" if clean else "WARN", "clean" if clean else "has local changes"
-        )
+        try:
+            status_result = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            clean = not status_result.stdout.strip()
+            table.add_row(
+                "Git working tree",
+                "OK" if clean else "WARN",
+                "clean" if clean else "has local changes",
+            )
+        except OSError:
+            table.add_row("Git working tree", "WARN", "git executable not available")
     except (ConfigError, RuntimeError) as exc:
         table.add_row("Git repository", "FAIL", str(exc))
         config = TaskToPRConfig()
-    gh = subprocess.run(["gh", "auth", "status"], capture_output=True, text=True, check=False)
-    table.add_row(
-        "GitHub CLI auth",
-        "OK" if gh.returncode == 0 else "WARN",
-        "authenticated" if gh.returncode == 0 else "run gh auth login",
-    )
+    if shutil.which("gh") is None:
+        table.add_row("GitHub CLI auth", "WARN", "gh not found; install GitHub CLI")
+    else:
+        try:
+            gh = subprocess.run(
+                ["gh", "auth", "status"], capture_output=True, text=True, check=False
+            )
+            table.add_row(
+                "GitHub CLI auth",
+                "OK" if gh.returncode == 0 else "WARN",
+                "authenticated" if gh.returncode == 0 else "run gh auth login",
+            )
+        except OSError:
+            table.add_row("GitHub CLI auth", "WARN", "gh not executable")
     table.add_row("Python", "OK", sys.version.split()[0])
     table.add_row(
         "Node.js", "OK" if shutil.which("node") else "WARN", shutil.which("node") or "not found"
