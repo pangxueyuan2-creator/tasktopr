@@ -6,46 +6,61 @@ It never force-pushes, never merges, never gives the model unrestricted shell, a
 
 ## Install
 
-Python 3.11+, Git, and (for real Issues/PRs) the [GitHub CLI](https://cli.github.com/).
+Requires Python 3.11+, Git. For real Issues and PRs you also need the [GitHub CLI](https://cli.github.com/) (`gh`) authenticated.
 
 ```bash
 pip install tasktopr
-# or from source
+# or from this repository
 pip install -e .
 
 tasktopr doctor
 ```
 
+`doctor` checks the local environment and tells you what is missing.
+
 ## Quick start
 
 ```bash
-export OPENAI_API_KEY=...   # or ANTHROPIC_API_KEY
+export OPENAI_API_KEY=...          # or ANTHROPIC_API_KEY
 
-tasktopr plan 123                    # read-only plan
-tasktopr fix 123 --dry-run           # plan only
-tasktopr fix 123 --no-pr             # local branch + tests, no PR
-tasktopr fix 123                     # full run, can open a PR
+tasktopr plan 123                  # read-only plan, no changes
+tasktopr fix 123 --dry-run         # plan only
+tasktopr fix 123 --no-pr           # local branch + real tests, no PR
+tasktopr fix 123                   # full run (can open a PR)
 ```
+
+Always inspect the evidence folder under `.tasktopr/runs/` before merging anything.
 
 ## Evidence
 
-Each run creates a folder with `plan.json`, `changes.json`, `test-results.json`, `summary.md`, and an event log. Look at that before merging anything.
+Each run creates a folder containing:
 
-## Safety notes
+- `plan.json`
+- `changes.json`
+- `test-results.json` (real subprocess results)
+- `summary.md`
+- event log
 
-- Paths are resolved inside the Git root; traversal and protected paths are blocked
-- Only a small set of test/build commands is allowed
-- Protected areas (workflows, locks, secrets, etc.) are excluded by default
-- Read the full [security model](docs/security-model.md) before using it on anything important
+These are ordinary files you can read and keep.
 
-## Related tools
+## Safety boundaries (current)
 
-These are separate projects that answer different questions:
+- Paths are resolved inside the Git root; path traversal is blocked
+- Protected paths (workflows, lockfiles, secrets, etc.) are excluded by default
+- Only a small allowlist of test/build commands is permitted
+- No unrestricted shell is given to the model
+- API keys are never written into logs or evidence files
 
-- [GuardSpec](https://github.com/pangxueyuan2-creator/guardspec) — before the work starts, check whether the repository’s explicit agent rules allow the proposed paths/commands
-- [PatchWitness](https://github.com/pangxueyuan2-creator/patchwitness) — after a change exists, produce a Change Passport that records scope, protected paths, and which checks actually ran
+Read the full [security model](docs/security-model.md) before using it on anything important.
 
-TaskToPR does not depend on either of them. You can use any combination, or none of them.
+## How it relates to the other two tools
+
+These are separate projects that answer different questions. You can use any combination, or none of them.
+
+- [GuardSpec](https://github.com/pangxueyuan2-creator/guardspec) — **before** work starts: check whether the repository’s explicit agent rules allow the proposed paths/commands
+- [PatchWitness](https://github.com/pangxueyuan2-creator/patchwitness) — **after** a change exists: produce a Change Passport that records scope, protected paths, and which checks actually ran
+
+TaskToPR does not depend on either tool.
 
 ## Demo
 
@@ -56,6 +71,7 @@ pip install -e .
 
 ## Status
 
-Early v0.1. Aimed at small, single-Issue changes. Single maintainer.
+Early v0.1. Aimed at small, single-Issue changes. Single maintainer.  
+No production claims.
 
 MIT.
