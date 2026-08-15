@@ -15,6 +15,7 @@ All notable changes are documented here. TaskToPR follows semantic versioning on
 - `--demo` Issue #1 now falls back to the documented builtin payload when `.tasktopr-demo-issue.json` is absent. A present but invalid file still errors.
 - `review` now accepts `--boundary` so standalone review uses the same agent-boundary/v1 path policy as `plan` and `fix`.
 - Independent PatchWitness evidence under `.patchwitness/` is ignored by working-tree review collection, and `.patchwitness/**` is protected by default so a model cannot write there as a requested path.
+- Review no longer treats Git `core.autocrlf` continuation lines (`The file will have its original line endings in your working directory`) as whitespace failures. Those lines have no `warning:` prefix on Windows.
 
 ### Added
 

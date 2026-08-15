@@ -106,6 +106,35 @@ def test_reviewer_approves_expected_change_with_passing_tests(demo_repo: Path) -
     assert result.scope_ok is True
 
 
+def test_reviewer_ignores_git_autocrlf_continuation_without_warning_prefix(
+    demo_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tasktopr.agents.reviewer as reviewer_module
+
+    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        del kwargs
+        if command[:2] == ["git", "diff"] and "--check" in command:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout="",
+                stderr="The file will have its original line endings in your working directory\n",
+            )
+        if command[:2] == ["git", "status"]:
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(reviewer_module.subprocess, "run", fake_run)
+    result = review_changes(
+        demo_repo,
+        ["calculator.py"],
+        [CommandResult(command=["python", "-m", "pytest"], return_code=0, elapsed_seconds=0.1)],
+        TaskToPRConfig(),
+    )
+    assert result.approved is True
+    assert not any("whitespace" in finding.casefold() for finding in result.findings)
+
+
 def test_reviewer_ignores_git_autocrlf_warnings(
     demo_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -132,8 +132,16 @@ def _combined_diff_check_text(completed: subprocess.CompletedProcess[str]) -> st
 
 
 def _is_autocrlf_warning(line: str) -> bool:
+    """Ignore Git core.autocrlf chatter from ``git diff --check``.
+
+    Windows Git emits a ``warning:`` line plus a continuation without that
+    prefix: ``The file will have its original line endings in your working
+    directory``. Requiring the prefix let the continuation become a HIGH
+    finding even when every real whitespace check passed.
+    """
+
     lowered = line.strip().casefold()
-    if not lowered.startswith("warning:"):
+    if not lowered:
         return False
     return (
         "lf will be replaced by crlf" in lowered
