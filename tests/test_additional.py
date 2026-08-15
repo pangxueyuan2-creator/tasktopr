@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import ClassVar
 
@@ -30,6 +31,39 @@ def test_positive_command_and_timeout_are_evidenced(tmp_path: Path) -> None:
     timed_out = run_safe_command(["python", "-c", "import time\ntime.sleep(1)"], tmp_path, 0)
     assert timed_out.return_code == 124
     assert "Timed out" in timed_out.reason
+
+
+def test_python_commands_use_active_interpreter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        del kwargs
+        commands.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout="ok\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    result = run_safe_command(["python", "-m", "pytest", "-q"], tmp_path, 5)
+    assert result.return_code == 0
+    assert commands == [[sys.executable, "-m", "pytest", "-q"]]
+
+
+def test_git_root_decodes_utf8_paths_with_replacement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tasktopr.agents.explorer as explorer_module
+
+    calls: list[dict[str, object]] = []
+
+    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(kwargs)
+        return subprocess.CompletedProcess(command, 0, stdout=str(tmp_path), stderr="")
+
+    monkeypatch.setattr(explorer_module.subprocess, "run", fake_run)
+    assert explorer_module.git_root(tmp_path) == tmp_path.resolve()
+    assert calls[0].get("encoding") == "utf-8"
+    assert calls[0].get("errors") == "replace"
 
 
 def test_context_excludes_env_and_redacts_content(demo_repo: Path) -> None:
@@ -206,6 +240,28 @@ def test_cli_doctor_survives_missing_gh(demo_repo: Path, monkeypatch: pytest.Mon
     assert result.exit_code == 0
     assert "TaskToPR doctor" in result.stdout
     assert "gh not found" in result.stdout or "WARN" in result.stdout
+
+
+def test_cli_doctor_uses_explicit_subprocess_decoding(
+    demo_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tasktopr.cli as cli_module
+
+    monkeypatch.chdir(demo_repo)
+    monkeypatch.setattr(cli_module, "git_root", lambda _start: demo_repo)
+    monkeypatch.setattr(cli_module.shutil, "which", lambda _command: "available")
+    calls: list[dict[str, object]] = []
+
+    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(kwargs)
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(cli_module.subprocess, "run", fake_run)
+    result = RUNNER.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    assert calls
+    assert all(call.get("encoding") == "utf-8" for call in calls)
+    assert all(call.get("errors") == "replace" for call in calls)
 
 
 def test_cli_fix_dry_run_and_review(demo_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
