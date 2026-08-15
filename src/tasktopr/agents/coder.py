@@ -7,7 +7,13 @@ from pathlib import Path
 from ..config import TaskToPRConfig
 from ..models import ChangePlan, PatchRequest, RepositoryProfile
 from ..providers import ModelProvider, parse_json_model
-from ..security import SecurityError, canonicalize_repo_relpath, policy_blocks, safe_path
+from ..security import (
+    SecurityError,
+    policy_blocks,
+    refuse_aliased_write,
+    resolved_repo_relpath,
+    safe_path,
+)
 
 _PATCH_SYSTEM = """You are TaskToPR's coding component. Produce only a JSON object matching this schema:
 {
@@ -29,7 +35,7 @@ def request_patch(
 ) -> PatchRequest:
     """Request a patch restricted to the plan's target files."""
 
-    targets = [canonicalize_repo_relpath(step.path) for step in plan.steps]
+    targets = [resolved_repo_relpath(profile.root, step.path) for step in plan.steps]
     sources: list[str] = []
     for path in targets:
         if policy_blocks(path, config):
@@ -48,9 +54,9 @@ def request_patch(
         provider.complete(system=_PATCH_SYSTEM, user=user, config=config.agent), PatchRequest
     )
     extra_paths = [
-        canonicalize_repo_relpath(operation.path)
+        resolved_repo_relpath(profile.root, operation.path)
         for operation in patch.operations
-        if canonicalize_repo_relpath(operation.path) not in targets
+        if resolved_repo_relpath(profile.root, operation.path) not in targets
     ]
     if extra_paths:
         raise SecurityError(
@@ -81,10 +87,11 @@ def apply_patch(
         return originals[path]
 
     for operation in patch.operations:
-        canonical = canonicalize_repo_relpath(operation.path)
-        if policy_blocks(canonical, config):
+        rel = resolved_repo_relpath(profile.root, operation.path)
+        if policy_blocks(rel, config):
             raise SecurityError(f"Refusing to edit protected path: {operation.path}")
-        path = safe_path(profile.root, canonical)
+        path = safe_path(profile.root, rel)
+        refuse_aliased_write(path, operation.path)
         if path not in order:
             order.append(path)
         if operation.kind == "create":

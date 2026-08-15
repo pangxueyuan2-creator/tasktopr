@@ -11,7 +11,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .models import CommandResult, RiskLevel
-from .paths import PathSecurityError, canonicalize_repo_relpath, normalize_relpath
+from .paths import (
+    PathSecurityError,
+    canonicalize_repo_relpath,
+    normalize_relpath,
+    resolved_repo_relpath as _resolved_repo_relpath,
+)
 
 if TYPE_CHECKING:
     from .config import TaskToPRConfig
@@ -123,18 +128,39 @@ def _normalize_relpath(relative_path: str) -> str:
     return normalize_relpath(relative_path)
 
 
+def resolved_repo_relpath(repo_root: Path, relative_path: str) -> str:
+    """Resolve aliases and return the repository-relative path a write would hit."""
+
+    try:
+        return _resolved_repo_relpath(repo_root, relative_path)
+    except PathSecurityError as exc:
+        raise SecurityError(str(exc)) from exc
+
+
 def safe_path(repo_root: Path, relative_path: str) -> Path:
     """Resolve a user/model path and prove it remains within the repository root."""
 
-    try:
-        collapsed = canonicalize_repo_relpath(relative_path)
-    except PathSecurityError as exc:
-        raise SecurityError(str(exc)) from exc
-    root = repo_root.resolve()
-    candidate = (root / collapsed).resolve()
-    if candidate == root or root not in candidate.parents:
-        raise SecurityError(f"Path escapes the repository root: {relative_path}")
-    return candidate
+    rel = resolved_repo_relpath(repo_root, relative_path)
+    return repo_root.resolve() / rel
+
+
+def refuse_aliased_write(path: Path, relative_path: str) -> None:
+    """Block writes that would also mutate another directory entry.
+
+    Policy sees one repository-relative name. A symlink or hard link can make
+    that name alias a protected file. Refuse both instead of trusting the
+    requested spelling.
+    """
+
+    if path.exists() and path.is_symlink():
+        raise SecurityError(f"Refusing to write through a symlink: {relative_path}")
+    if path.is_file():
+        try:
+            nlink = path.stat().st_nlink
+        except OSError:
+            return
+        if nlink > 1:
+            raise SecurityError(f"Refusing to edit a hard-linked file: {relative_path}")
 
 
 def _path_matches(normalized: str, pattern: str) -> bool:

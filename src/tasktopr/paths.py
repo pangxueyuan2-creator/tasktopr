@@ -38,3 +38,19 @@ def canonicalize_repo_relpath(relative_path: str) -> str:
     if collapsed in {".", ""} or collapsed.startswith("../"):
         raise PathSecurityError(f"Path escapes the repository root: {relative_path}")
     return collapsed
+
+
+def resolved_repo_relpath(repo_root: Path, relative_path: str) -> str:
+    """Return the on-disk repository-relative path that a write would hit.
+
+    Canonicalization collapses ``.`` / ``..``. ``Path.resolve`` then expands
+    Windows 8.3 names, junctions, and in-repo symlinks. Policy must run on
+    this form or a short name / symlink can miss ``.github/workflows/**``.
+    """
+
+    collapsed = canonicalize_repo_relpath(relative_path)
+    root = repo_root.resolve()
+    candidate = (root / collapsed).resolve()
+    if candidate == root or root not in candidate.parents:
+        raise PathSecurityError(f"Path escapes the repository root: {relative_path}")
+    return candidate.relative_to(root).as_posix()

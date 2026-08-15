@@ -14,7 +14,7 @@ from tasktopr.config import (
     load_boundary,
 )
 from tasktopr.models import PatchOperation, PlanStep, RiskLevel
-from tasktopr.paths import PathSecurityError
+from tasktopr.paths import PathSecurityError, resolved_repo_relpath
 from tasktopr.security import (
     canonicalize_repo_relpath,
     is_protected,
@@ -92,6 +92,14 @@ def test_load_and_apply_agent_boundary(tmp_path: Path) -> None:
     assert policy_blocks("src/lib.py", config) is False
     assert policy_blocks("docs/readme.md", config) is True
     assert policy_blocks(".github/workflows/ci.yml", config) is True
+
+
+def test_resolved_repo_relpath_follows_existing_prefix(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / "app.py").write_text("ok\n", encoding="utf-8")
+    assert resolved_repo_relpath(root, "src/./app.py") == "src/app.py"
+    assert resolved_repo_relpath(root, "src/../src/app.py") == "src/app.py"
 
 
 def test_canonicalize_collapses_dotdot_before_policy() -> None:

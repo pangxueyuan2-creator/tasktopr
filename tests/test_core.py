@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -296,6 +297,124 @@ def test_apply_patch_blocks_dotdot_workflow_bypass(demo_repo: Path) -> None:
         ],
     )
     with pytest.raises(SecurityError, match="protected"):
+        apply_patch(patch, profile, TaskToPRConfig())
+    assert target.read_text(encoding="utf-8") == "name: ci\n"
+
+
+def _windows_short_relpath(path: Path, root: Path) -> str | None:
+    if os.name != "nt":
+        return None
+    import ctypes
+    from ctypes import wintypes
+
+    getter = ctypes.windll.kernel32.GetShortPathNameW
+    getter.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD]
+    getter.restype = wintypes.DWORD
+
+    def short_name(candidate: Path) -> str | None:
+        buffer = ctypes.create_unicode_buffer(4096)
+        length = getter(str(candidate), buffer, 4096)
+        if length == 0:
+            return None
+        return buffer.value
+
+    short_full = short_name(path)
+    short_root = short_name(root)
+    if not short_full or not short_root:
+        return None
+    full_n = short_full.replace("/", "\\")
+    root_n = short_root.replace("/", "\\").rstrip("\\")
+    prefix = root_n + "\\"
+    if not full_n.lower().startswith(prefix.lower()):
+        return None
+    rel = full_n[len(prefix) :].replace("\\", "/")
+    if "~" not in rel:
+        return None
+    return rel
+
+
+def test_apply_patch_blocks_windows_short_name_workflow(demo_repo: Path) -> None:
+    workflows = demo_repo / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    target = workflows / "ci.yml"
+    target.write_text("name: ci\n", encoding="utf-8")
+    short = _windows_short_relpath(target, demo_repo)
+    if short is None:
+        pytest.skip("volume does not expose a distinct 8.3 name")
+    profile = explore(demo_repo, Issue(number=1, title="ci"), TaskToPRConfig())
+    patch = PatchRequest(
+        summary="8.3 jailbreak",
+        operations=[
+            PatchOperation(
+                kind="replace",
+                path=short,
+                old_text="name: ci\n",
+                new_text="name: pwned\n",
+                reason="short name should still hit protected glob",
+            )
+        ],
+    )
+    with pytest.raises(SecurityError, match="protected"):
+        apply_patch(patch, profile, TaskToPRConfig())
+    assert target.read_text(encoding="utf-8") == "name: ci\n"
+
+
+def test_apply_patch_blocks_hardlink_to_workflow(demo_repo: Path) -> None:
+    workflows = demo_repo / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    target = workflows / "ci.yml"
+    target.write_text("name: ci\n", encoding="utf-8")
+    decoy = demo_repo / "src" / "decoy.py"
+    decoy.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.link(target, decoy)
+    except OSError:
+        pytest.skip("hard links are not available in this environment")
+    profile = explore(demo_repo, Issue(number=1, title="ci"), TaskToPRConfig())
+    patch = PatchRequest(
+        summary="hardlink jailbreak",
+        operations=[
+            PatchOperation(
+                kind="replace",
+                path="src/decoy.py",
+                old_text="name: ci\n",
+                new_text="name: pwned\n",
+                reason="hard link should not grant workflow writes",
+            )
+        ],
+    )
+    with pytest.raises(SecurityError, match="hard-linked"):
+        apply_patch(patch, profile, TaskToPRConfig())
+    assert target.read_text(encoding="utf-8") == "name: ci\n"
+
+
+def test_apply_patch_blocks_inrepo_symlink_to_workflow(demo_repo: Path) -> None:
+    workflows = demo_repo / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    target = workflows / "ci.yml"
+    target.write_text("name: ci\n", encoding="utf-8")
+    decoy = demo_repo / "src" / "decoy.py"
+    decoy.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        decoy.symlink_to(target)
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == 1314:
+            pytest.skip("Windows symlink privilege is not available in this environment")
+        raise
+    profile = explore(demo_repo, Issue(number=1, title="ci"), TaskToPRConfig())
+    patch = PatchRequest(
+        summary="symlink jailbreak",
+        operations=[
+            PatchOperation(
+                kind="replace",
+                path="src/decoy.py",
+                old_text="name: ci\n",
+                new_text="name: pwned\n",
+                reason="symlink should not grant workflow writes",
+            )
+        ],
+    )
+    with pytest.raises(SecurityError, match="protected|symlink"):
         apply_patch(patch, profile, TaskToPRConfig())
     assert target.read_text(encoding="utf-8") == "name: ci\n"
 
