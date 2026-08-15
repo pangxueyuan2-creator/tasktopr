@@ -38,6 +38,15 @@ Each run creates a folder with `plan.json`, `changes.json`, `test-results.json`,
 - Protected areas (workflows, locks, secrets, etc.) are excluded by default
 - Read the full [security model](docs/security-model.md) before using it on anything important
 
+## Related tools
+
+These are separate projects that answer different questions:
+
+- [GuardSpec](https://github.com/pangxueyuan2-creator/guardspec) — before the work starts, check whether the repository’s explicit agent rules allow the proposed paths/commands
+- [PatchWitness](https://github.com/pangxueyuan2-creator/patchwitness) — after a change exists, produce a Change Passport that records scope, protected paths, and which checks actually ran
+
+TaskToPR does not depend on either of them. You can use any combination, or none of them.
+
 ## Demo
 
 ```bash
