@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -143,13 +144,17 @@ def run_safe_command(command: list[str], cwd: Path, timeout_seconds: int) -> Com
 
     started = time.monotonic()
     try:
+        execution_command = (
+            [sys.executable, *command[1:]] if command[0] in {"python", "python3"} else command
+        )
         completed = subprocess.run(
-            command,
+            execution_command,
             cwd=cwd,
             check=False,
             shell=False,
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=timeout_seconds,
         )
         return CommandResult(
