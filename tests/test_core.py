@@ -101,6 +101,7 @@ def test_protected_path_policy(path: str, expected: bool) -> None:
         ["rm", "-rf", "/"],
         ["curl", "https://example.invalid"],
         ["python", "-c", "print(1); print(2)"],
+        ["python", "-c", "print('ok')"],
         ["git", "push", "--force"],
     ],
 )

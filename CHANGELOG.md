@@ -11,6 +11,7 @@ All notable changes are documented here. TaskToPR follows semantic versioning on
 - Nested `.env*` files and the root `.tasktopr.toml` are protected by default.
 - `git status --porcelain -z` review collection records both rename/copy paths.
 - Issue text cannot add allowed paths or lift protected-path policy.
+- Safe command execution now refuses interpreter inline payloads (`python -c`, `node --eval`) even when the executable is allowlisted.
 
 ### Added
 

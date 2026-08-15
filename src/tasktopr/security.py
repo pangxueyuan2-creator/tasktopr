@@ -60,7 +60,37 @@ _DENIED_TOKENS = {
     "docker",
 }
 _SHELL_METACHARACTERS = (";", "&&", "||", "|", "`", "$(", ">", "<")
-_ALLOWED_EXECUTABLES = {"python", "python3", "pytest", "ruff", "mypy", "npm", "npx", "node"}
+_ALLOWED_EXECUTABLES = {
+    "python",
+    "python.exe",
+    "python3",
+    "python3.exe",
+    "py",
+    "py.exe",
+    "pytest",
+    "pytest.exe",
+    "ruff",
+    "ruff.exe",
+    "mypy",
+    "mypy.exe",
+    "npm",
+    "npm.cmd",
+    "npx",
+    "npx.cmd",
+    "node",
+    "node.exe",
+}
+_INLINE_INTERPRETERS = {
+    "python",
+    "python.exe",
+    "python3",
+    "python3.exe",
+    "py",
+    "py.exe",
+    "node",
+    "node.exe",
+}
+_INLINE_PAYLOAD_FLAGS = {"-c", "/c", "-command", "-enc", "-encodedcommand", "--eval", "-e"}
 
 
 class SecurityError(ValueError):
@@ -228,7 +258,7 @@ def validate_command(command: list[str]) -> None:
 
     if not command:
         raise SecurityError("An empty command cannot be executed.")
-    executable = Path(command[0]).name
+    executable = Path(command[0]).name.lower()
     if executable not in _ALLOWED_EXECUTABLES:
         raise SecurityError(f"Executable is not allowlisted: {executable}")
     joined = " ".join(command)
@@ -240,6 +270,10 @@ def validate_command(command: list[str]) -> None:
         raise SecurityError("Shell metacharacters are not allowed.")
     if "rm -rf" in joined or ".git" in command:
         raise SecurityError("Destructive or Git-internal operations are not allowed.")
+    if executable in _INLINE_INTERPRETERS and any(
+        token.lower() in _INLINE_PAYLOAD_FLAGS for token in command[1:]
+    ):
+        raise SecurityError("Inline interpreter payloads are not allowed.")
 
 
 def run_safe_command(command: list[str], cwd: Path, timeout_seconds: int) -> CommandResult:
