@@ -1,10 +1,8 @@
 # TaskToPR
 
-**Turn a GitHub Issue into a transparent, tested Pull Request.**
+Takes one GitHub Issue, makes a small change on an isolated branch, runs the real tests, and can open a PR. Every run leaves an evidence folder under `.tasktopr/runs/`.
 
-TaskToPR is a local CLI that reads one Issue, plans a small change, applies it on an isolated branch, runs real tests, and can open a PR. Every run leaves an evidence bundle under `.tasktopr/runs/`.
-
-It never force-pushes, never merges, never gives the model unrestricted shell access, and never writes API keys into logs.
+It never force-pushes, never merges, never gives the model unrestricted shell, and never writes API keys into logs.
 
 ## Install
 
@@ -24,21 +22,21 @@ tasktopr doctor
 export OPENAI_API_KEY=...   # or ANTHROPIC_API_KEY
 
 tasktopr plan 123                    # read-only plan
-tasktopr fix 123 --dry-run           # plan only, no changes
+tasktopr fix 123 --dry-run           # plan only
 tasktopr fix 123 --no-pr             # local branch + tests, no PR
 tasktopr fix 123                     # full run, can open a PR
 ```
 
 ## Evidence
 
-Each run creates a folder with `plan.json`, `changes.json`, `test-results.json`, `summary.md`, and an event log. Review that before merging anything.
+Each run creates a folder with `plan.json`, `changes.json`, `test-results.json`, `summary.md`, and an event log. Look at that before merging anything.
 
 ## Safety notes
 
 - Paths are resolved inside the Git root; traversal and protected paths are blocked
 - Only a small set of test/build commands is allowed
 - Protected areas (workflows, locks, secrets, etc.) are excluded by default
-- Review the full [security model](docs/security-model.md) before using on important repos
+- Read the full [security model](docs/security-model.md) before using it on anything important
 
 ## Demo
 
@@ -51,4 +49,4 @@ pip install -e .
 
 Early v0.1. Aimed at small, single-Issue changes. Single maintainer.
 
-MIT License.
+MIT.
