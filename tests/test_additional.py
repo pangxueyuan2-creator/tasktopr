@@ -190,9 +190,7 @@ def test_cli_doctor_runs_inside_repository(
     assert "TaskToPR doctor" in result.stdout
 
 
-def test_cli_doctor_survives_missing_gh(
-    demo_repo: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_cli_doctor_survives_missing_gh(demo_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """doctor must not crash when the GitHub CLI binary is absent."""
 
     monkeypatch.chdir(demo_repo)
