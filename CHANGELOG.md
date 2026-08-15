@@ -12,6 +12,9 @@ All notable changes are documented here. TaskToPR follows semantic versioning on
 - `git status --porcelain -z` review collection records both rename/copy paths.
 - Issue text cannot add allowed paths or lift protected-path policy.
 - Safe command execution now refuses interpreter inline payloads (`python -c`, `node --eval`) even when the executable is allowlisted.
+- `--demo` Issue #1 now falls back to the documented builtin payload when `.tasktopr-demo-issue.json` is absent. A present but invalid file still errors.
+- `review` now accepts `--boundary` so standalone review uses the same agent-boundary/v1 path policy as `plan` and `fix`.
+- Independent PatchWitness evidence under `.patchwitness/` is ignored by working-tree review collection, and `.patchwitness/**` is protected by default so a model cannot write there as a requested path.
 
 ### Added
 

@@ -298,6 +298,17 @@ def test_apply_patch_blocks_workflow_even_when_called_directly(demo_repo: Path) 
         apply_patch(patch, profile, TaskToPRConfig())
 
 
+def test_list_changed_files_ignores_patchwitness_evidence(demo_repo: Path) -> None:
+    evidence = demo_repo / ".patchwitness" / "evidence"
+    evidence.mkdir(parents=True)
+    (evidence / "gate.json").write_text("{}", encoding="utf-8")
+    target = demo_repo / "calculator.py"
+    target.write_text(target.read_text(encoding="utf-8") + "\n# witness\n", encoding="utf-8")
+    changed = list_changed_files(demo_repo)
+    assert "calculator.py" in changed
+    assert not any(path.startswith(".patchwitness") for path in changed)
+
+
 def test_list_changed_files_includes_rename_source_and_destination(demo_repo: Path) -> None:
     subprocess.run(
         ["git", "mv", "calculator.py", "renamed calculator.py"],

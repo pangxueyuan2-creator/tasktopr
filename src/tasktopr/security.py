@@ -27,6 +27,7 @@ _DEFAULT_PROTECTED = (
     ".git/**",
     ".tasktopr/**",
     ".tasktopr.toml",
+    ".patchwitness/**",
     ".env*",
     "**/.env*",
     ".github/workflows/**",

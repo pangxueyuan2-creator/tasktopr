@@ -32,6 +32,8 @@ def test_nested_env_and_tasktopr_toml_are_protected() -> None:
     assert is_protected("config/.env") is True
     assert is_protected("nested/deep/.env.production") is True
     assert is_protected(".tasktopr.toml") is True
+    assert is_protected(".patchwitness/evidence/gate.json") is True
+    assert is_protected(r".patchwitness\cache\index") is True
     assert is_protected("src/app.py") is False
 
 

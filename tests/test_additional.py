@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -180,6 +181,15 @@ def test_issue_intake_reports_bad_demo_file(demo_repo: Path) -> None:
         load_issue(demo_repo, 1, demo=True)
 
 
+def test_demo_issue_builtin_fallback_when_file_missing(demo_repo: Path) -> None:
+    (demo_repo / ".tasktopr-demo-issue.json").unlink()
+    issue = load_issue(demo_repo, 1, demo=True)
+    assert issue.number == 1
+    assert "zero" in issue.title.casefold()
+    with pytest.raises(IssueIntakeError, match="no builtin demo"):
+        load_issue(demo_repo, 2, demo=True)
+
+
 def test_cli_help_plan_status_and_config(demo_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(demo_repo)
     assert RUNNER.invoke(app, ["--help"]).exit_code == 0
@@ -226,6 +236,36 @@ def test_cli_fix_dry_run_and_review(demo_repo: Path, monkeypatch: pytest.MonkeyP
     assert "Dry run completed" in fixed.stdout
     reviewed = RUNNER.invoke(app, ["review"])
     assert reviewed.exit_code == 0
+
+
+def test_cli_review_applies_boundary(demo_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(demo_repo)
+    notes = demo_repo / "notes.md"
+    notes.write_text("out of scope\n", encoding="utf-8")
+    help_result = RUNNER.invoke(app, ["review", "--help"])
+    assert help_result.exit_code == 0
+    assert "--boundary" in help_result.stdout
+    unconstrained = RUNNER.invoke(app, ["review"])
+    assert unconstrained.exit_code == 0
+    boundary = demo_repo.parent / "review-boundary.json"
+    boundary.write_text(
+        json.dumps(
+            {
+                "schema": "https://patchwitness.dev/agent-boundary/v1",
+                "version": 1,
+                "id": "review-scope",
+                "exclusive_allow": True,
+                "allowed_paths": ["calculator.py", "test_calculator.py"],
+                "denied_paths": [".github/workflows/**"],
+                "protected_paths": [".github/workflows/**"],
+                "required_checks": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    constrained = RUNNER.invoke(app, ["review", "--boundary", str(boundary)])
+    assert constrained.exit_code == 1
+    assert "Protected files changed" in constrained.stdout
 
 
 def test_orchestrator_records_provider_failure(demo_repo: Path) -> None:

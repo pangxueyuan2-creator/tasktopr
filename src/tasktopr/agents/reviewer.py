@@ -56,8 +56,8 @@ def list_changed_files(repo_root: Path) -> list[str]:
     """Return working-tree paths from ``git status --porcelain -z``.
 
     Rename and copy entries contribute both the destination and the source so
-    policy cannot miss a protected origin. ``.tasktopr`` evidence and cache
-    directories are ignored.
+    policy cannot miss a protected origin. ``.tasktopr`` and ``.patchwitness``
+    evidence/cache directories are ignored.
     """
 
     completed = subprocess.run(
@@ -71,7 +71,13 @@ def list_changed_files(repo_root: Path) -> list[str]:
     )
     if completed.returncode != 0:
         return ["[git-status-unavailable]"]
-    ignored_parts = {".tasktopr", "__pycache__", ".pytest_cache", ".mypy_cache"}
+    ignored_parts = {
+        ".tasktopr",
+        ".patchwitness",
+        "__pycache__",
+        ".pytest_cache",
+        ".mypy_cache",
+    }
     changed: list[str] = []
     tokens = completed.stdout.split("\0")
     index = 0

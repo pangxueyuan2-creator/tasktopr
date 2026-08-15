@@ -15,6 +15,25 @@ class IssueIntakeError(RuntimeError):
     """Raised when an Issue cannot be retrieved or parsed."""
 
 
+# Documented --demo Issue #1. Used only when `.tasktopr-demo-issue.json` is
+# absent. A present-but-invalid file still errors so corruption is not hidden.
+_BUILTIN_DEMO_ISSUE_NUMBER = 1
+_BUILTIN_DEMO_ISSUE: dict[str, Any] = {
+    "number": 1,
+    "title": "Prevent a crash when dividing by zero",
+    "body": (
+        "The calculator crashes when the denominator is zero.\n\n"
+        "Acceptance criteria:\n"
+        "- divide(8, 0) raises a clear ValueError\n"
+        "- normal division continues to work\n\n"
+        "Constraints:\n"
+        "- Do not refactor unrelated arithmetic behavior"
+    ),
+    "url": "https://example.invalid/issues/1",
+    "labels": [{"name": "bug"}],
+}
+
+
 def load_issue(repo_root: Path, issue_number: int, *, demo: bool = False) -> Issue:
     """Fetch one Issue using `gh`, or a local demo Issue when explicitly requested."""
 
@@ -55,7 +74,12 @@ def load_issue(repo_root: Path, issue_number: int, *, demo: bool = False) -> Iss
 def _load_demo_issue(repo_root: Path, issue_number: int) -> Issue:
     path = repo_root / ".tasktopr-demo-issue.json"
     if not path.exists():
-        raise IssueIntakeError("Demo issue file `.tasktopr-demo-issue.json` was not found.")
+        if issue_number == _BUILTIN_DEMO_ISSUE_NUMBER:
+            return _issue_from_mapping(_BUILTIN_DEMO_ISSUE)
+        raise IssueIntakeError(
+            "Demo issue file `.tasktopr-demo-issue.json` was not found "
+            f"and there is no builtin demo for #{issue_number}."
+        )
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
         issue = _issue_from_mapping(raw)

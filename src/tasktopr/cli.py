@@ -152,12 +152,25 @@ def fix(
 
 
 @app.command()
-def review() -> None:
+def review(
+    boundary: Annotated[
+        Path | None,
+        typer.Option(
+            "--boundary",
+            help="Independent agent-boundary/v1 JSON file. Issue text is never treated as policy.",
+        ),
+    ] = None,
+) -> None:
     """Review current working-tree changes against scope, safety and test evidence gates."""
 
     try:
         root = git_root(Path.cwd())
         config = load_config(root)
+        if boundary is not None:
+            apply_boundary(
+                config,
+                load_boundary(boundary if boundary.is_absolute() else root / boundary),
+            )
         changed = list_changed_files(root)
         result = review_changes(root, changed, [], config)
     except (ConfigError, RuntimeError) as exc:
