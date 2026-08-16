@@ -24,6 +24,12 @@ from tasktopr.security import run_safe_command
 RUNNER = CliRunner()
 
 
+def test_version_flag_prints_version() -> None:
+    result = RUNNER.invoke(app, ["--version"])
+    assert result.exit_code == 0
+    assert "0.1.0" in result.stdout
+
+
 def test_positive_command_and_timeout_are_evidenced(tmp_path: Path) -> None:
     okay = run_safe_command(["python", "-c", "print('ok')"], tmp_path, 5)
     assert okay.return_code == 0
