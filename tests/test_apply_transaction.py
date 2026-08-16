@@ -224,3 +224,55 @@ def test_benign_alias_to_regular_file_still_works(demo_repo: Path) -> None:
     apply_patch(patch, _profile(demo_repo), TaskToPRConfig())
 
     assert "# changed through alias" in (directory / "note.md").read_text(encoding="utf-8")
+
+
+def test_unlisted_dependency_manifest_names_are_blocked(demo_repo: Path) -> None:
+    """requirements-dev.txt, setup.py and nested manifests are dependency
+    surfaces too; the permission must cover them by basename."""
+
+    for name, old_text, new_text in (
+        ("requirements-dev.txt", "pytest", "pytest==9.9.9"),
+        ("setup.py", "setup()", "setup(install_requires=['evil'])"),
+    ):
+        target = demo_repo / name
+        target.write_text(old_text + "\n", encoding="utf-8")
+        patch = PatchRequest(
+            summary="dependency bump",
+            operations=[
+                PatchOperation(
+                    kind="replace",
+                    path=name,
+                    old_text=old_text,
+                    new_text=new_text,
+                    reason="test",
+                )
+            ],
+        )
+        with pytest.raises(SecurityError, match="dependency manifest"):
+            apply_patch(patch, _profile(demo_repo), TaskToPRConfig())
+        assert target.read_text(encoding="utf-8") == old_text + "\n"
+
+    nested = demo_repo / "services" / "worker" / "requirements.txt"
+    nested.parent.mkdir(parents=True, exist_ok=True)
+    nested.write_text("requests\n", encoding="utf-8")
+    patch = PatchRequest(
+        summary="nested dependency bump",
+        operations=[
+            _replace("services/worker/requirements.txt", "requests", "requests==9.9.9")
+        ],
+    )
+    with pytest.raises(SecurityError, match="dependency manifest"):
+        apply_patch(patch, _profile(demo_repo), TaskToPRConfig())
+
+
+def test_dependency_names_allowed_with_permission(demo_repo: Path) -> None:
+    config = TaskToPRConfig()
+    config.permissions.allow_dependency_updates = True
+    target = demo_repo / "requirements-dev.txt"
+    target.write_text("pytest\n", encoding="utf-8")
+    patch = PatchRequest(
+        summary="dependency bump",
+        operations=[_replace("requirements-dev.txt", "pytest", "pytest==9.9.9")],
+    )
+    apply_patch(patch, _profile(demo_repo), config)
+    assert "pytest==9.9.9" in target.read_text(encoding="utf-8")
