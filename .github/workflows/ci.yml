@@ -40,3 +40,30 @@ jobs:
         run: pip-audit . --strict
       - name: Build distributions
         run: python -m build
+
+  quality-windows:
+    name: Python 3.13 / windows-latest
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Install project and quality tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest pytest-cov ruff mypy bandit build pip-audit
+      - name: Unit and integration tests with coverage
+        run: pytest -q
+      - name: Lint
+        run: ruff check .
+      - name: Formatting
+        run: ruff format --check .
+      - name: Static types
+        run: mypy src/tasktopr
+      - name: Security scan
+        run: bandit -q -c .bandit -r src
+      - name: Dependency audit
+        run: pip-audit . --strict
+      - name: Build distributions
+        run: python -m build
