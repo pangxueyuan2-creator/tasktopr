@@ -86,9 +86,7 @@ def test_pytest_resolution_skips_repo_root_shadow(
 
     _plant_shadow(tmp_path, "pytest")
     scripts = Path(sys.executable).parent
-    monkeypatch.setenv(
-        "PATH", str(scripts) + os.pathsep + os.environ.get("PATH", "")
-    )
+    monkeypatch.setenv("PATH", str(scripts) + os.pathsep + os.environ.get("PATH", ""))
     result = run_safe_command(["pytest", "--version"], cwd=tmp_path, timeout_seconds=15)
 
     assert result.return_code == 0
