@@ -86,6 +86,24 @@ def apply_patch(
                 f"Refusing to edit dependency manifest without permission: {operation.path}"
             )
         path = safe_path(profile.root, operation.path)
+        # Aliases (symlinks, junctions) resolve to a different repository path than
+        # the operation names. The write below targets the resolved path, so the
+        # policy must be applied to the resolved target too; otherwise a patch can
+        # smuggle edits into protected or dependency files through an alias.
+        resolved_relative = path.relative_to(profile.root.resolve()).as_posix()
+        if resolved_relative != operation.path.replace("\\", "/"):
+            if is_protected(resolved_relative, config.scope.protected):
+                raise SecurityError(
+                    f"Refusing to edit protected path through an alias: "
+                    f"{operation.path} -> {resolved_relative}"
+                )
+            if not config.permissions.allow_dependency_updates and is_dependency_path(
+                resolved_relative
+            ):
+                raise SecurityError(
+                    f"Refusing to edit dependency manifest through an alias: "
+                    f"{operation.path} -> {resolved_relative}"
+                )
         if path not in order:
             order.append(path)
         if operation.kind == "create":

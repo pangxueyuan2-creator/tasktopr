@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -148,3 +149,78 @@ def test_write_failure_removes_created_file_and_parent(
 
     assert target.read_text(encoding="utf-8") == before
     assert not (demo_repo / "new").exists()
+
+
+def _make_dir_alias(repo: Path, link: str, target: str) -> bool:
+    """Create a directory alias (Windows junction, POSIX symlink fallback)."""
+
+    try:
+        completed = subprocess.run(
+            ["cmd.exe", "/c", "mklink", "/J", str(repo / link), str(repo / target)],
+            capture_output=True,
+        )
+        if completed.returncode == 0:
+            return True
+    except OSError:
+        pass
+    try:
+        (repo / link).symlink_to(repo / target, target_is_directory=True)
+        return True
+    except OSError:
+        return False
+
+
+def test_alias_to_protected_workflow_is_refused(demo_repo: Path) -> None:
+    workflow = demo_repo / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True, exist_ok=True)
+    workflow.write_text("on: push\n", encoding="utf-8")
+    if not _make_dir_alias(demo_repo, "alias-wf", ".github/workflows"):
+        pytest.skip("directory aliases are unavailable in this environment")
+    patch = PatchRequest(
+        summary="alias into workflows",
+        operations=[
+            _replace(
+                "alias-wf/ci.yml",
+                "on: push",
+                "on: push\njobs:\n  evil:\n    runs-on: ubuntu-latest",
+            )
+        ],
+    )
+
+    with pytest.raises(SecurityError, match="protected path through an alias"):
+        apply_patch(patch, _profile(demo_repo), TaskToPRConfig())
+
+    assert "evil" not in workflow.read_text(encoding="utf-8")
+
+
+def test_file_alias_to_dependency_manifest_is_refused(demo_repo: Path) -> None:
+    manifest = demo_repo / "pyproject.toml"
+    try:
+        (demo_repo / "alias.txt").symlink_to(manifest)
+    except OSError as exc:
+        pytest.skip(f"file symlinks are unavailable in this environment: {exc}")
+    patch = PatchRequest(
+        summary="alias into manifest",
+        operations=[_replace("alias.txt", 'name = "zero-division-demo"', 'name = "evil"')],
+    )
+
+    with pytest.raises(SecurityError, match="dependency manifest through an alias"):
+        apply_patch(patch, _profile(demo_repo), TaskToPRConfig())
+
+    assert 'name = "evil"' not in manifest.read_text(encoding="utf-8")
+
+
+def test_benign_alias_to_regular_file_still_works(demo_repo: Path) -> None:
+    directory = demo_repo / "src2"
+    directory.mkdir(exist_ok=True)
+    (directory / "note.md").write_text("# note\n", encoding="utf-8")
+    if not _make_dir_alias(demo_repo, "alias-src", "src2"):
+        pytest.skip("directory aliases are unavailable in this environment")
+    patch = PatchRequest(
+        summary="alias to regular file",
+        operations=[_replace("alias-src/note.md", "# note", "# changed through alias")],
+    )
+
+    apply_patch(patch, _profile(demo_repo), TaskToPRConfig())
+
+    assert "# changed through alias" in (directory / "note.md").read_text(encoding="utf-8")
