@@ -150,6 +150,7 @@ def test_write_failure_removes_created_file_and_parent(
     assert target.read_text(encoding="utf-8") == before
     assert not (demo_repo / "new").exists()
 
+
 def _make_dir_alias(repo: Path, link: str, target: str) -> bool:
     """Create a directory alias (Windows junction, POSIX symlink fallback)."""
 
@@ -222,7 +223,4 @@ def test_benign_alias_to_regular_file_still_works(demo_repo: Path) -> None:
 
     apply_patch(patch, _profile(demo_repo), TaskToPRConfig())
 
-    assert "# changed through alias" in (directory / "note.md").read_text(
-        encoding="utf-8"
-    )
-
+    assert "# changed through alias" in (directory / "note.md").read_text(encoding="utf-8")
