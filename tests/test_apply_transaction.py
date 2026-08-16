@@ -257,9 +257,7 @@ def test_unlisted_dependency_manifest_names_are_blocked(demo_repo: Path) -> None
     nested.write_text("requests\n", encoding="utf-8")
     patch = PatchRequest(
         summary="nested dependency bump",
-        operations=[
-            _replace("services/worker/requirements.txt", "requests", "requests==9.9.9")
-        ],
+        operations=[_replace("services/worker/requirements.txt", "requests", "requests==9.9.9")],
     )
     with pytest.raises(SecurityError, match="dependency manifest"):
         apply_patch(patch, _profile(demo_repo), TaskToPRConfig())
