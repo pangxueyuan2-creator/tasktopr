@@ -135,8 +135,18 @@ def fix_issue(
                 message=message,
             )
 
-        if no_pr:
-            message = "Local branch is ready and reviewed. --no-pr prevented commit, push and Pull Request creation."
+        if no_pr or not config.permissions.allow_pr_creation:
+            if no_pr:
+                message = (
+                    "Local branch is ready and reviewed. --no-pr prevented commit, push and "
+                    "Pull Request creation."
+                )
+            else:
+                message = (
+                    "Local branch is ready and reviewed. The repository configuration disables "
+                    "Pull Request creation (permissions.allow_pr_creation = false); no commit, "
+                    "push or Pull Request was created."
+                )
             journal.event(RunPhase.COMPLETED, message)
             return RunResult(
                 run_dir=journal.run_dir,

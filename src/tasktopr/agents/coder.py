@@ -7,7 +7,7 @@ from pathlib import Path
 from ..config import TaskToPRConfig
 from ..models import ChangePlan, PatchRequest, RepositoryProfile
 from ..providers import ModelProvider, parse_json_model
-from ..security import SecurityError, is_protected, safe_path
+from ..security import SecurityError, is_dependency_path, is_protected, safe_path
 
 _PATCH_SYSTEM = """You are TaskToPR's coding component. Produce only a JSON object matching this schema:
 {
@@ -81,6 +81,10 @@ def apply_patch(
     for operation in patch.operations:
         if is_protected(operation.path, config.scope.protected):
             raise SecurityError(f"Refusing to edit protected path: {operation.path}")
+        if not config.permissions.allow_dependency_updates and is_dependency_path(operation.path):
+            raise SecurityError(
+                f"Refusing to edit dependency manifest without permission: {operation.path}"
+            )
         path = safe_path(profile.root, operation.path)
         if path not in order:
             order.append(path)

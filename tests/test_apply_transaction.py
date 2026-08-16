@@ -36,6 +36,50 @@ def test_preflight_failure_does_not_apply_earlier_operation(demo_repo: Path) -> 
     assert target.read_text(encoding="utf-8") == before
 
 
+def test_dependency_manifest_edits_require_permission(demo_repo: Path) -> None:
+    patch = PatchRequest(
+        summary="dependency bump",
+        operations=[
+            PatchOperation(
+                kind="replace",
+                path="pyproject.toml",
+                old_text='name = "zero-division-demo"',
+                new_text='name = "zero-division-demo-v2"',
+                reason="test",
+            )
+        ],
+    )
+
+    with pytest.raises(SecurityError, match="dependency manifest"):
+        apply_patch(patch, _profile(demo_repo), TaskToPRConfig())
+
+    assert 'name = "zero-division-demo"' in (demo_repo / "pyproject.toml").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_dependency_manifest_edits_allowed_with_permission(demo_repo: Path) -> None:
+    config = TaskToPRConfig()
+    config.permissions.allow_dependency_updates = True
+    patch = PatchRequest(
+        summary="dependency bump",
+        operations=[
+            PatchOperation(
+                kind="replace",
+                path="pyproject.toml",
+                old_text='name = "zero-division-demo"',
+                new_text='name = "zero-division-demo-v2"',
+                reason="test",
+            )
+        ],
+    )
+
+    apply_patch(patch, _profile(demo_repo), config)
+    assert 'name = "zero-division-demo-v2"' in (demo_repo / "pyproject.toml").read_text(
+        encoding="utf-8"
+    )
+
+
 def test_write_failure_rolls_back_every_attempted_file(
     demo_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

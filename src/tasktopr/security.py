@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -53,6 +55,38 @@ _DENIED_TOKENS = {
 }
 _SHELL_METACHARACTERS = (";", "&&", "||", "|", "`", "$(", ">", "<")
 _ALLOWED_EXECUTABLES = {"python", "python3", "pytest", "ruff", "mypy", "npm", "npx", "node"}
+
+DEPENDENCY_FILES = frozenset(
+    {
+        "package.json",
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "bun.lock",
+        "bun.lockb",
+        "pyproject.toml",
+        "poetry.lock",
+        "uv.lock",
+        "requirements.txt",
+        "pipfile",
+        "pipfile.lock",
+        "go.mod",
+        "go.sum",
+        "cargo.toml",
+        "cargo.lock",
+        "gemfile",
+        "gemfile.lock",
+        "composer.json",
+        "composer.lock",
+    }
+)
+
+
+def is_dependency_path(relative_path: str) -> bool:
+    """Return whether a repository-relative path names a dependency manifest."""
+
+    normalized = _normalize_relpath(relative_path)
+    return Path(normalized).name.casefold() in DEPENDENCY_FILES
 
 
 class SecurityError(ValueError):
@@ -128,6 +162,34 @@ def validate_command(command: list[str]) -> None:
         raise SecurityError("Destructive or Git-internal operations are not allowed.")
 
 
+def resolve_executable(executable: str, cwd: Path) -> str:
+    """Resolve an allowlisted executable on PATH, never through the repository.
+
+    Windows CreateProcess searches the parent process's current directory
+    before PATH, so a binary planted at the repository root could shadow a
+    real tool. Windows .cmd/.bat shims cannot be executed without a shell
+    and are rejected explicitly instead of crashing the run.
+    """
+
+    resolved = shutil.which(executable)
+    if resolved is None:
+        raise SecurityError(f"Executable is not available on PATH: {executable}")
+    try:
+        resolved_path = Path(resolved).resolve()
+        repository_root = cwd.resolve()
+    except OSError as exc:
+        raise SecurityError(f"Executable could not be resolved safely: {executable}") from exc
+    if resolved_path.parent == repository_root:
+        raise SecurityError(
+            f"Executable resolves to the repository root and could shadow a real tool: {executable}"
+        )
+    if os.name == "nt" and Path(resolved).suffix.casefold() in {".cmd", ".bat"}:
+        raise SecurityError(
+            f"Executable is a Windows batch shim that cannot run without a shell: {executable}"
+        )
+    return resolved
+
+
 def run_safe_command(command: list[str], cwd: Path, timeout_seconds: int) -> CommandResult:
     """Run a validated command without a shell and retain redacted, bounded evidence."""
 
@@ -144,9 +206,10 @@ def run_safe_command(command: list[str], cwd: Path, timeout_seconds: int) -> Com
 
     started = time.monotonic()
     try:
-        execution_command = (
-            [sys.executable, *command[1:]] if command[0] in {"python", "python3"} else command
-        )
+        if command[0] in {"python", "python3"}:
+            execution_command = [sys.executable, *command[1:]]
+        else:
+            execution_command = [resolve_executable(command[0], cwd), *command[1:]]
         completed = subprocess.run(
             execution_command,
             cwd=cwd,
@@ -164,6 +227,16 @@ def run_safe_command(command: list[str], cwd: Path, timeout_seconds: int) -> Com
             stdout=redact(completed.stdout[-12_000:]),
             stderr=redact(completed.stderr[-12_000:]),
         )
+    except SecurityError as exc:
+        return CommandResult(
+            command=command,
+            return_code=126,
+            elapsed_seconds=round(time.monotonic() - started, 3),
+            stdout="",
+            stderr="",
+            blocked=True,
+            reason=str(exc),
+        )
     except subprocess.TimeoutExpired as exc:
         return CommandResult(
             command=command,
@@ -172,6 +245,16 @@ def run_safe_command(command: list[str], cwd: Path, timeout_seconds: int) -> Com
             stdout=redact(_timeout_text(exc.stdout)[-12_000:]),
             stderr=redact(_timeout_text(exc.stderr)[-12_000:]),
             reason=f"Timed out after {timeout_seconds} seconds.",
+        )
+    except OSError as exc:
+        return CommandResult(
+            command=command,
+            return_code=127,
+            elapsed_seconds=round(time.monotonic() - started, 3),
+            stdout="",
+            stderr="",
+            blocked=True,
+            reason=f"Executable could not be started: {redact(str(exc))}",
         )
 
 

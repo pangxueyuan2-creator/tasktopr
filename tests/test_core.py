@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -68,7 +69,12 @@ def test_safe_path_blocks_traversal_and_symlink_escape(tmp_path: Path) -> None:
         safe_path(root, "../outside.txt")
     outside = tmp_path / "outside"
     outside.mkdir()
-    (root / "link").symlink_to(outside, target_is_directory=True)
+    try:
+        (root / "link").symlink_to(outside, target_is_directory=True)
+    except OSError as exc:
+        if os.name == "nt":
+            pytest.skip(f"symlinks are unavailable in this environment: {exc}")
+        raise
     with pytest.raises(SecurityError):
         safe_path(root, "link/secret.txt")
 
@@ -188,6 +194,22 @@ def test_demo_fix_creates_real_branch_patch_tests_and_evidence(demo_repo: Path) 
         assert (result.run_dir / artifact).exists()
     events = (result.run_dir / "events.jsonl").read_text(encoding="utf-8")
     assert "ANALYZING_ISSUE" in events and "REVIEWING_PATCH" in events
+
+
+def test_demo_fix_respects_allow_pr_creation_false(demo_repo: Path) -> None:
+    config = TaskToPRConfig()
+    config.permissions.allow_pr_creation = False
+    result = fix_issue(
+        1,
+        start_dir=demo_repo,
+        config=config,
+        provider=DemoProvider(),
+        demo=True,
+    )
+    assert result.success is True
+    assert result.branch
+    assert result.pr_url is None
+    assert "permissions.allow_pr_creation" in result.message
 
 
 def test_dry_run_never_creates_branch_or_edits(demo_repo: Path) -> None:
