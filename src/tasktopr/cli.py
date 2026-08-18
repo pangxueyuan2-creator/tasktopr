@@ -12,6 +12,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from . import __version__
 from .agents import explore, git_root, review_changes
 from .config import ConfigError, TaskToPRConfig, load_config, provider_api_key, redacted_config
 from .models import Issue
@@ -24,6 +25,22 @@ app = typer.Typer(
     help="Turn a GitHub Issue into a transparent, tested Pull Request.",
 )
 console = Console()
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        console.print(f"tasktopr {__version__}")
+        raise typer.Exit(0)
+
+
+@app.callback()
+def main_callback(
+    version: Annotated[
+        bool | None,
+        typer.Option("--version", callback=_version_callback, is_eager=True),
+    ] = None,
+) -> None:
+    """TaskToPR top-level options."""
 
 
 def _config_and_provider(
