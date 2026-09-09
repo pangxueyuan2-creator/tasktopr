@@ -13,9 +13,8 @@ from rich.console import Console
 from rich.table import Table
 
 from . import __version__
-from .agents import explore, git_root, review_changes
+from .agents import git_root, review_changes
 from .config import ConfigError, TaskToPRConfig, load_config, provider_api_key, redacted_config
-from .models import Issue
 from .orchestrator import fix_issue, plan_issue
 from .providers import DemoProvider, ModelProvider, ProviderError, build_provider
 
