@@ -56,6 +56,29 @@ _DENIED_TOKENS = {
 }
 _SHELL_METACHARACTERS = (";", "&&", "||", "|", "`", "$(", ">", "<")
 _ALLOWED_EXECUTABLES = {"python", "python3", "pytest", "ruff", "mypy", "npm", "npx", "node"}
+_NPM_NETWORK_OR_MUTATING_SUBCOMMANDS = {
+    "add",
+    "audit",
+    "ci",
+    "exec",
+    "fund",
+    "i",
+    "info",
+    "init",
+    "install",
+    "login",
+    "logout",
+    "pack",
+    "ping",
+    "publish",
+    "remove",
+    "rm",
+    "search",
+    "uninstall",
+    "update",
+    "upgrade",
+    "view",
+}
 
 DEPENDENCY_FILES = frozenset(
     {
@@ -180,6 +203,12 @@ def validate_command(command: list[str]) -> None:
         raise SecurityError("Shell metacharacters are not allowed.")
     if "rm -rf" in joined or ".git" in command:
         raise SecurityError("Destructive or Git-internal operations are not allowed.")
+    if executable == "npm" and any(
+        argument.casefold() in _NPM_NETWORK_OR_MUTATING_SUBCOMMANDS for argument in command[1:]
+    ):
+        raise SecurityError("Networked or dependency-mutating npm commands are not allowed.")
+    if executable == "npx" and "--no-install" not in command[1:]:
+        raise SecurityError("npx must use --no-install so it cannot download missing packages.")
 
 
 def resolve_executable(executable: str, cwd: Path) -> str:
