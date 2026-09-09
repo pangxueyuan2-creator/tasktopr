@@ -24,6 +24,7 @@ _SECRET_PATTERNS = (
 _DEFAULT_PROTECTED = (
     ".git/**",
     ".tasktopr/**",
+    ".tasktopr.toml",
     ".env*",
     ".github/workflows/**",
     "**/*credential*",

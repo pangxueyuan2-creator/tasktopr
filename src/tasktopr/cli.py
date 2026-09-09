@@ -13,9 +13,8 @@ from rich.console import Console
 from rich.table import Table
 
 from . import __version__
-from .agents import explore, git_root, review_changes
+from .agents import git_root, review_changes
 from .config import ConfigError, TaskToPRConfig, load_config, provider_api_key, redacted_config
-from .models import Issue
 from .orchestrator import fix_issue, plan_issue
 from .providers import DemoProvider, ModelProvider, ProviderError, build_provider
 
@@ -144,8 +143,33 @@ def review() -> None:
     try:
         root = git_root(Path.cwd())
         config = load_config(root)
-        profile = explore(root, Issue(number=1, title="Current working tree"), config)
-        changed = [path for path in profile.file_tree if (root / path).exists()]
+        tracked = subprocess.run(
+            ["git", "diff", "--name-only", "--relative", "HEAD"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+        untracked = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+        if tracked.returncode != 0 or untracked.returncode != 0:
+            raise RuntimeError("Unable to inspect current Git working-tree changes.")
+        changed = sorted(
+            {
+                path
+                for path in (*tracked.stdout.splitlines(), *untracked.stdout.splitlines())
+                if path
+            }
+        )
         result = review_changes(root, changed, [], config)
     except (ConfigError, RuntimeError) as exc:
         console.print(f"[bold red]Review unavailable:[/] {exc}")

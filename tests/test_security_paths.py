@@ -11,6 +11,11 @@ def test_is_protected_normalizes_windows_separators() -> None:
     assert is_protected(r"src\normal\file.py") is False
 
 
+def test_tasktopr_config_is_protected() -> None:
+    assert is_protected(".tasktopr.toml") is True
+    assert path_risk(".tasktopr.toml") == RiskLevel.BLOCKED
+
+
 def test_path_risk_blocks_backslash_protected_paths() -> None:
     assert path_risk(r".github\workflows\ci.yml") == RiskLevel.BLOCKED
     assert path_risk(".github/workflows/ci.yml") == RiskLevel.BLOCKED
