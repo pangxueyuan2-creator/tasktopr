@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from tasktopr.security import run_safe_command
+from tasktopr.security import SecurityError, run_safe_command, validate_command
 
 
 def _plant_shadow(root: Path, name: str) -> None:
@@ -101,3 +101,36 @@ def test_missing_executable_is_blocked(tmp_path: Path, monkeypatch: pytest.Monke
     result = run_safe_command(["pytest", "--version"], cwd=tmp_path, timeout_seconds=15)
     assert result.blocked is True
     assert result.return_code in {126, 127}
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        ["npm", "install"],
+        ["npm", "ci"],
+        ["npm", "publish"],
+        ["npm", "exec", "vitest"],
+        ["npm", "--silent", "audit"],
+    ],
+)
+def test_networked_or_mutating_npm_commands_are_blocked(command: list[str]) -> None:
+    """Package acquisition, publication and registry access stay outside the test surface."""
+
+    with pytest.raises(SecurityError, match="npm commands are not allowed"):
+        validate_command(command)
+
+
+def test_npx_requires_no_install() -> None:
+    """Bare npx may download a missing package, so it must opt out explicitly."""
+
+    with pytest.raises(SecurityError, match="--no-install"):
+        validate_command(["npx", "vitest", "run"])
+
+    validate_command(["npx", "--no-install", "vitest", "run"])
+
+
+def test_read_only_npm_test_commands_remain_allowed() -> None:
+    """Existing local test scripts remain available after tightening package-manager policy."""
+
+    validate_command(["npm", "test"])
+    validate_command(["npm", "run", "lint"])
