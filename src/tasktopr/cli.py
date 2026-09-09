@@ -144,8 +144,33 @@ def review() -> None:
     try:
         root = git_root(Path.cwd())
         config = load_config(root)
-        profile = explore(root, Issue(number=1, title="Current working tree"), config)
-        changed = [path for path in profile.file_tree if (root / path).exists()]
+        tracked = subprocess.run(
+            ["git", "diff", "--name-only", "--relative", "HEAD"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+        untracked = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+        if tracked.returncode != 0 or untracked.returncode != 0:
+            raise RuntimeError("Unable to inspect current Git working-tree changes.")
+        changed = sorted(
+            {
+                path
+                for path in (*tracked.stdout.splitlines(), *untracked.stdout.splitlines())
+                if path
+            }
+        )
         result = review_changes(root, changed, [], config)
     except (ConfigError, RuntimeError) as exc:
         console.print(f"[bold red]Review unavailable:[/] {exc}")
