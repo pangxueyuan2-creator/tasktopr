@@ -77,7 +77,19 @@ _NPM_NETWORK_OR_MUTATING_SUBCOMMANDS = {
     "uninstall",
     "update",
     "upgrade",
+    "version",
     "view",
+    "x",
+}
+_NPM_SCRIPT_SUBCOMMANDS = {
+    "restart",
+    "run",
+    "run-script",
+    "start",
+    "stop",
+    "t",
+    "test",
+    "tst",
 }
 _PYTHON_BLOCKED_MODULES = {"ensurepip", "http.server", "pip", "venv"}
 _PYTHON_OPTIONS_WITH_VALUES = {"-W", "-X", "--check-hash-based-pycs"}
@@ -256,10 +268,15 @@ def validate_command(command: list[str]) -> None:
         _validate_python_command(command[1:])
     if executable == "node":
         _validate_node_command(command[1:])
-    if executable == "npm" and any(
-        argument.casefold() in _NPM_NETWORK_OR_MUTATING_SUBCOMMANDS for argument in command[1:]
-    ):
-        raise SecurityError("Networked or dependency-mutating npm commands are not allowed.")
+    if executable == "npm":
+        npm_arguments = {argument.casefold() for argument in command[1:]}
+        if npm_arguments & _NPM_NETWORK_OR_MUTATING_SUBCOMMANDS:
+            raise SecurityError("Networked or dependency-mutating npm commands are not allowed.")
+        if npm_arguments & _NPM_SCRIPT_SUBCOMMANDS:
+            raise SecurityError(
+                "npm lifecycle/script commands are not allowed because package scripts can execute "
+                "arbitrary shell commands; invoke a local tool directly instead."
+            )
     if executable == "npx" and "--no-install" not in command[1:]:
         raise SecurityError("npx must use --no-install so it cannot download missing packages.")
 

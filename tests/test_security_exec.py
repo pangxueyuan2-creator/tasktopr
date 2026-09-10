@@ -179,6 +179,8 @@ def test_node_syntax_check_remains_allowed() -> None:
         ["npm", "ci"],
         ["npm", "publish"],
         ["npm", "exec", "vitest"],
+        ["npm", "x", "vitest"],
+        ["npm", "version", "patch"],
         ["npm", "--silent", "audit"],
     ],
 )
@@ -186,6 +188,26 @@ def test_networked_or_mutating_npm_commands_are_blocked(command: list[str]) -> N
     """Package acquisition, publication and registry access stay outside the test surface."""
 
     with pytest.raises(SecurityError, match="npm commands are not allowed"):
+        validate_command(command)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        ["npm", "test"],
+        ["npm", "t"],
+        ["npm", "run", "lint"],
+        ["npm", "run-script", "build"],
+        ["npm", "start"],
+        ["npm", "stop"],
+        ["npm", "restart"],
+        ["npm", "--silent", "run", "check"],
+    ],
+)
+def test_npm_package_scripts_are_blocked(command: list[str]) -> None:
+    """Repository-controlled package scripts must not bypass command validation."""
+
+    with pytest.raises(SecurityError, match="lifecycle/script"):
         validate_command(command)
 
 
@@ -198,8 +220,8 @@ def test_npx_requires_no_install() -> None:
     validate_command(["npx", "--no-install", "vitest", "run"])
 
 
-def test_read_only_npm_test_commands_remain_allowed() -> None:
-    """Existing local test scripts remain available after tightening package-manager policy."""
+def test_read_only_npm_metadata_commands_remain_allowed() -> None:
+    """npm itself remains usable for non-script local metadata queries."""
 
-    validate_command(["npm", "test"])
-    validate_command(["npm", "run", "lint"])
+    validate_command(["npm", "--version"])
+    validate_command(["npm", "prefix"])
