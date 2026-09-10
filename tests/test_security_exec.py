@@ -54,7 +54,7 @@ def test_nested_repository_path_shadow_is_blocked(
     monkeypatch.setenv("PATH", str(tool_dir))
 
     result = run_safe_command(
-        ["node", "-c", "import sys; sys.exit(77)"],
+        ["node", "--version"],
         cwd=tmp_path,
         timeout_seconds=15,
     )
