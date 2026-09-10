@@ -80,6 +80,7 @@ _NPM_NETWORK_OR_MUTATING_SUBCOMMANDS = {
     "view",
 }
 _PYTHON_BLOCKED_MODULES = {"ensurepip", "http.server", "pip", "venv"}
+_PYTHON_OPTIONS_WITH_VALUES = {"-W", "-X", "--check-hash-based-pycs"}
 _NODE_CODE_EXECUTION_FLAGS = {
     "-e",
     "--eval",
@@ -207,14 +208,24 @@ def _has_interpreter_flag(arguments: list[str], flag: str) -> bool:
 def _validate_python_command(arguments: list[str]) -> None:
     """Reject Python launch forms that bypass the intended test/build surface."""
 
-    if _has_interpreter_flag(arguments, "-c"):
-        raise SecurityError("Inline Python code execution is not allowed.")
-    for index, argument in enumerate(arguments[:-1]):
-        if argument != "-m":
-            continue
-        module = arguments[index + 1].casefold()
-        if module in _PYTHON_BLOCKED_MODULES or module.startswith("pip."):
-            raise SecurityError(f"Python module is not allowed in safe commands: {module}")
+    index = 0
+    while index < len(arguments):
+        argument = arguments[index]
+        if argument == "--" or argument == "-" or not argument.startswith("-"):
+            return
+        if argument == "-m":
+            if index + 1 >= len(arguments):
+                return
+            module = arguments[index + 1].casefold()
+            if module in _PYTHON_BLOCKED_MODULES or module.startswith("pip."):
+                raise SecurityError(f"Python module is not allowed in safe commands: {module}")
+            return
+        if argument == "-c" or argument.startswith("-c"):
+            raise SecurityError("Inline Python code execution is not allowed.")
+        if argument in _PYTHON_OPTIONS_WITH_VALUES:
+            index += 2
+        else:
+            index += 1
 
 
 def _validate_node_command(arguments: list[str]) -> None:
