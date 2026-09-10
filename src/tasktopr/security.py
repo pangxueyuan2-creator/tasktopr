@@ -215,9 +215,10 @@ def resolve_executable(executable: str, cwd: Path) -> str:
     """Resolve an allowlisted executable on PATH, never through the repository.
 
     Windows CreateProcess searches the parent process's current directory
-    before PATH, so a binary planted at the repository root could shadow a
-    real tool. Windows .cmd/.bat shims cannot be executed without a shell
-    and are rejected explicitly instead of crashing the run.
+    before PATH, so a binary planted anywhere inside the repository could
+    shadow a real tool when that directory is placed on PATH. Windows
+    .cmd/.bat shims cannot be executed without a shell and are rejected
+    explicitly instead of crashing the run.
     """
 
     resolved = shutil.which(executable)
@@ -228,9 +229,9 @@ def resolve_executable(executable: str, cwd: Path) -> str:
         repository_root = cwd.resolve()
     except OSError as exc:
         raise SecurityError(f"Executable could not be resolved safely: {executable}") from exc
-    if resolved_path.parent == repository_root:
+    if resolved_path == repository_root or repository_root in resolved_path.parents:
         raise SecurityError(
-            f"Executable resolves to the repository root and could shadow a real tool: {executable}"
+            f"Executable resolves inside the repository and could shadow a real tool: {executable}"
         )
     if os.name == "nt" and Path(resolved).suffix.casefold() in {".cmd", ".bat"}:
         raise SecurityError(
