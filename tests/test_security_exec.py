@@ -43,6 +43,27 @@ def test_repository_root_shadow_never_runs(tmp_path: Path) -> None:
     assert result.return_code != 77
 
 
+def test_nested_repository_path_shadow_is_blocked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A PATH entry below the repository root must not supply an executable."""
+
+    tool_dir = tmp_path / "tools" / "bin"
+    tool_dir.mkdir(parents=True)
+    _plant_shadow(tool_dir, "node")
+    monkeypatch.setenv("PATH", str(tool_dir))
+
+    result = run_safe_command(
+        ["node", "--version"],
+        cwd=tmp_path,
+        timeout_seconds=15,
+    )
+
+    assert result.blocked is True
+    assert result.return_code == 126
+    assert "inside the repository" in (result.reason or "")
+
+
 def test_windows_batch_shims_are_blocked(tmp_path: Path) -> None:
     """npm.cmd cannot run without a shell; it must block instead of raising."""
 
