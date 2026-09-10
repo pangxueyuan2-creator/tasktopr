@@ -123,6 +123,8 @@ def test_missing_executable_is_blocked(tmp_path: Path, monkeypatch: pytest.Monke
     [
         ["python", "-c", "print('arbitrary')"],
         ["python", "-cprint('arbitrary')"],
+        ["python", "-X", "dev", "-c", "print('arbitrary')"],
+        ["python", "--check-hash-based-pycs", "always", "-c", "print('arbitrary')"],
         ["python", "-m", "pip", "install", "example"],
         ["python", "-m", "pip._internal", "install", "example"],
         ["python", "-m", "ensurepip"],
@@ -137,10 +139,11 @@ def test_python_inline_or_unsafe_module_execution_is_blocked(command: list[str])
         validate_command(command)
 
 
-def test_known_python_test_module_remains_allowed() -> None:
-    """The default discovered pytest command stays within the safe surface."""
+def test_known_python_test_forms_remain_allowed() -> None:
+    """Normal test commands and script arguments stay within the safe surface."""
 
     validate_command(["python", "-m", "pytest", "-q"])
+    validate_command(["python", "runner.py", "-config", "test.toml"])
 
 
 @pytest.mark.parametrize(
