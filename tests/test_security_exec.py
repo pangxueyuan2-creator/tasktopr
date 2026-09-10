@@ -75,28 +75,22 @@ def test_windows_batch_shims_are_blocked(tmp_path: Path) -> None:
 
 
 def test_python_command_uses_interpreter_not_repo_root_shadow(tmp_path: Path) -> None:
-    """python commands substitute sys.executable, so a repo-root python shadow
-    is never consulted (Windows CreateProcess cwd search included)."""
+    """python commands substitute sys.executable instead of resolving from cwd."""
 
-    marker = tmp_path / "shadow-ran.txt"
     shadow_name = "python.exe" if os.name == "nt" else "python"
-    (tmp_path / shadow_name).write_text(
-        f"import pathlib\npathlib.Path({str(marker)!r}).write_text('ran')\n",
-        encoding="utf-8",
-    )
+    (tmp_path / shadow_name).write_text("not a real executable\n", encoding="utf-8")
     if os.name != "nt":
         (tmp_path / shadow_name).chmod(0o755)
 
     result = run_safe_command(
-        ["python", "-c", "print('real-interpreter')"],
+        ["python", "--version"],
         cwd=tmp_path,
         timeout_seconds=15,
     )
 
     assert result.return_code == 0
-    assert "real-interpreter" in result.stdout
     assert not result.blocked
-    assert not marker.exists()
+    assert "Python" in result.stdout + result.stderr
 
 
 def test_pytest_resolution_skips_repo_root_shadow(
@@ -122,6 +116,57 @@ def test_missing_executable_is_blocked(tmp_path: Path, monkeypatch: pytest.Monke
     result = run_safe_command(["pytest", "--version"], cwd=tmp_path, timeout_seconds=15)
     assert result.blocked is True
     assert result.return_code in {126, 127}
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        ["python", "-c", "print('arbitrary')"],
+        ["python", "-cprint('arbitrary')"],
+        ["python", "-m", "pip", "install", "example"],
+        ["python", "-m", "pip._internal", "install", "example"],
+        ["python", "-m", "ensurepip"],
+        ["python", "-m", "venv", ".venv"],
+        ["python", "-m", "http.server"],
+    ],
+)
+def test_python_inline_or_unsafe_module_execution_is_blocked(command: list[str]) -> None:
+    """Python cannot become an escape hatch for arbitrary/networked operations."""
+
+    with pytest.raises(SecurityError):
+        validate_command(command)
+
+
+def test_known_python_test_module_remains_allowed() -> None:
+    """The default discovered pytest command stays within the safe surface."""
+
+    validate_command(["python", "-m", "pytest", "-q"])
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        ["node", "-e", "console.log('arbitrary')"],
+        ["node", "-econsole.log('arbitrary')"],
+        ["node", "--eval=console.log('arbitrary')"],
+        ["node", "-p", "process.env"],
+        ["node", "--print=process.env"],
+        ["node", "-r", "./hook.js", "--check", "index.js"],
+        ["node", "--require=./hook.js", "--check", "index.js"],
+        ["node", "--import=./hook.mjs", "--check", "index.js"],
+    ],
+)
+def test_node_inline_or_preloaded_code_execution_is_blocked(command: list[str]) -> None:
+    """Node evaluation/preload flags cannot bypass the test/build command boundary."""
+
+    with pytest.raises(SecurityError, match="Node inline/preloaded"):
+        validate_command(command)
+
+
+def test_node_syntax_check_remains_allowed() -> None:
+    """Read-only Node syntax checking remains available."""
+
+    validate_command(["node", "--check", "index.js"])
 
 
 @pytest.mark.parametrize(
