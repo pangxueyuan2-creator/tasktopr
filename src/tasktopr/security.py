@@ -79,6 +79,17 @@ _NPM_NETWORK_OR_MUTATING_SUBCOMMANDS = {
     "upgrade",
     "view",
 }
+_PYTHON_BLOCKED_MODULES = {"ensurepip", "http.server", "pip", "venv"}
+_PYTHON_OPTIONS_WITH_VALUES = {"-W", "-X", "--check-hash-based-pycs"}
+_NODE_CODE_EXECUTION_FLAGS = {
+    "-e",
+    "--eval",
+    "-p",
+    "--print",
+    "-r",
+    "--require",
+    "--import",
+}
 
 DEPENDENCY_FILES = frozenset(
     {
@@ -186,6 +197,44 @@ def path_risk(relative_path: str, additional_patterns: list[str] | None = None) 
     return RiskLevel.LOW
 
 
+def _has_interpreter_flag(arguments: list[str], flag: str) -> bool:
+    """Return whether arguments contain an exact or attached interpreter flag."""
+
+    if flag.startswith("--"):
+        return any(argument == flag or argument.startswith(f"{flag}=") for argument in arguments)
+    return any(argument == flag or argument.startswith(flag) for argument in arguments)
+
+
+def _validate_python_command(arguments: list[str]) -> None:
+    """Reject Python launch forms that bypass the intended test/build surface."""
+
+    index = 0
+    while index < len(arguments):
+        argument = arguments[index]
+        if argument == "--" or argument == "-" or not argument.startswith("-"):
+            return
+        if argument == "-m":
+            if index + 1 >= len(arguments):
+                return
+            module = arguments[index + 1].casefold()
+            if module in _PYTHON_BLOCKED_MODULES or module.startswith("pip."):
+                raise SecurityError(f"Python module is not allowed in safe commands: {module}")
+            return
+        if argument == "-c" or argument.startswith("-c"):
+            raise SecurityError("Inline Python code execution is not allowed.")
+        if argument in _PYTHON_OPTIONS_WITH_VALUES:
+            index += 2
+        else:
+            index += 1
+
+
+def _validate_node_command(arguments: list[str]) -> None:
+    """Reject Node flags that evaluate or preload arbitrary code."""
+
+    if any(_has_interpreter_flag(arguments, flag) for flag in _NODE_CODE_EXECUTION_FLAGS):
+        raise SecurityError("Node inline/preloaded code execution is not allowed.")
+
+
 def validate_command(command: list[str]) -> None:
     """Accept only a small, non-networked test/build command surface."""
 
@@ -203,6 +252,10 @@ def validate_command(command: list[str]) -> None:
         raise SecurityError("Shell metacharacters are not allowed.")
     if "rm -rf" in joined or ".git" in command:
         raise SecurityError("Destructive or Git-internal operations are not allowed.")
+    if executable in {"python", "python3"}:
+        _validate_python_command(command[1:])
+    if executable == "node":
+        _validate_node_command(command[1:])
     if executable == "npm" and any(
         argument.casefold() in _NPM_NETWORK_OR_MUTATING_SUBCOMMANDS for argument in command[1:]
     ):

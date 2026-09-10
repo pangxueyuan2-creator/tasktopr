@@ -25,10 +25,15 @@ RUNNER = CliRunner()
 
 
 def test_positive_command_and_timeout_are_evidenced(tmp_path: Path) -> None:
-    okay = run_safe_command(["python", "-c", "print('ok')"], tmp_path, 5)
+    okay_script = tmp_path / "ok.py"
+    okay_script.write_text("print('ok')\n", encoding="utf-8")
+    okay = run_safe_command(["python", okay_script.name], tmp_path, 5)
     assert okay.return_code == 0
     assert "ok" in okay.stdout
-    timed_out = run_safe_command(["python", "-c", "import time\ntime.sleep(1)"], tmp_path, 0)
+
+    sleep_script = tmp_path / "sleep.py"
+    sleep_script.write_text("import time\ntime.sleep(1)\n", encoding="utf-8")
+    timed_out = run_safe_command(["python", sleep_script.name], tmp_path, 0)
     assert timed_out.return_code == 124
     assert "Timed out" in timed_out.reason
 
