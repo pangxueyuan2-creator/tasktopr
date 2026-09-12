@@ -64,6 +64,7 @@ def apply_patch(
 
     staged: dict[Path, str] = {}
     originals: dict[Path, str | None] = {}
+    original_bytes: dict[Path, bytes] = {}
     order: list[Path] = []
 
     def current_text(path: Path) -> str | None:
@@ -71,7 +72,10 @@ def apply_patch(
             return staged[path]
         if path not in originals:
             if path.is_file():
-                originals[path] = path.read_text(encoding="utf-8")
+                original_bytes[path] = path.read_bytes()
+                originals[path] = (
+                    original_bytes[path].decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+                )
             elif path.exists():
                 raise SecurityError(f"Refusing to edit non-regular path: {path}")
             else:
@@ -135,7 +139,7 @@ def apply_patch(
                     parent = parent.parent
                 path.parent.mkdir(parents=True, exist_ok=True)
             attempted.append(path)
-            path.write_text(staged[path], encoding="utf-8")
+            path.write_text(staged[path], encoding="utf-8", newline="\n")
     except Exception:
         rollback_errors: list[str] = []
         for path in reversed(attempted):
@@ -144,7 +148,7 @@ def apply_patch(
                 if prior is None:
                     path.unlink(missing_ok=True)
                 else:
-                    path.write_text(prior, encoding="utf-8")
+                    path.write_bytes(original_bytes[path])
             except OSError as exc:
                 rollback_errors.append(f"{path}: {exc}")
         for directory in sorted(created_dirs, key=lambda item: len(item.parts), reverse=True):

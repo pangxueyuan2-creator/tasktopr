@@ -151,6 +151,52 @@ def test_write_failure_removes_created_file_and_parent(
     assert not (demo_repo / "new").exists()
 
 
+def test_lf_patch_passes_git_whitespace_check_without_autocrlf(demo_repo: Path) -> None:
+    target = demo_repo / "portable.py"
+    target.write_bytes(b"def value():\n    return 1\n")
+    subprocess.run(["git", "config", "core.autocrlf", "false"], cwd=demo_repo, check=True)
+    subprocess.run(["git", "add", "portable.py"], cwd=demo_repo, check=True)
+    subprocess.run(["git", "commit", "-m", "LF fixture"], cwd=demo_repo, check=True)
+    apply_patch(
+        PatchRequest(
+            summary="portable patch", operations=[_replace("portable.py", "return 1", "return 2")]
+        ),
+        _profile(demo_repo),
+        TaskToPRConfig(),
+    )
+    check = subprocess.run(["git", "diff", "--check"], cwd=demo_repo, capture_output=True)
+    assert check.returncode == 0, check.stdout
+    assert target.read_bytes() == b"def value():\n    return 2\n"
+
+
+def test_failed_patch_restores_mixed_newline_bytes(
+    demo_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first, second = demo_repo / "first.py", demo_repo / "second.py"
+    before = b"# mixed newlines\r\nvalue = 1\n# bare CR\r"
+    first.write_bytes(before)
+    second.write_bytes(b"old\r\n")
+    real_write = Path.write_text
+
+    def fail_second(path: Path, content: str, **kwargs: object) -> int:
+        if path == second:
+            raise OSError("simulated second write failure")
+        return real_write(path, content, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", fail_second)
+    patch = PatchRequest(
+        summary="exact rollback",
+        operations=[
+            _replace("first.py", "value = 1", "value = 2"),
+            _replace("second.py", "old", "new"),
+        ],
+    )
+    with pytest.raises(OSError, match="second write"):
+        apply_patch(patch, _profile(demo_repo), TaskToPRConfig())
+    assert first.read_bytes() == before
+    assert second.read_bytes() == b"old\r\n"
+
+
 def _make_dir_alias(repo: Path, link: str, target: str) -> bool:
     """Create a directory alias (Windows junction, POSIX symlink fallback)."""
 
