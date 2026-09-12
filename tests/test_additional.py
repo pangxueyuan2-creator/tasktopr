@@ -13,6 +13,7 @@ from typer.testing import CliRunner
 from tasktopr.agents.explorer import compact_context, explore
 from tasktopr.agents.intake import IssueIntakeError, load_issue
 from tasktopr.agents.reviewer import review_changes
+from tasktopr.bounded_process import BoundedResult
 from tasktopr.cli import app
 from tasktopr.config import TaskToPRConfig, provider_api_key, redacted_config
 from tasktopr.models import ChangePlan, CommandResult, Issue, ReviewResult, RiskLevel
@@ -43,12 +44,11 @@ def test_python_commands_use_active_interpreter(
 ) -> None:
     commands: list[list[str]] = []
 
-    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        del kwargs
+    def fake_run(command: list[str], *args: object, **kwargs: object) -> BoundedResult:
         commands.append(command)
-        return subprocess.CompletedProcess(command, 0, stdout="ok\n", stderr="")
+        return BoundedResult(0, "ok\n", "", 0.0, False, False, False, 3, True)
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr("tasktopr.security.run_bounded_command", fake_run)
     result = run_safe_command(["python", "-m", "pytest", "-q"], tmp_path, 5)
     assert result.return_code == 0
     assert commands == [[sys.executable, "-m", "pytest", "-q"]]
@@ -275,7 +275,7 @@ def test_cli_fix_dry_run_and_review(demo_repo: Path, monkeypatch: pytest.MonkeyP
     assert fixed.exit_code == 0
     assert "Dry run completed" in fixed.stdout
     reviewed = RUNNER.invoke(app, ["review"])
-    assert reviewed.exit_code == 0
+    assert reviewed.exit_code == 1  # No recorded test evidence cannot approve a review.
 
 
 def test_orchestrator_records_provider_failure(demo_repo: Path) -> None:

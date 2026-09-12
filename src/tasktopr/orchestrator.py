@@ -20,6 +20,7 @@ from .events import RunJournal
 from .models import CommandResult, Issue, RunPhase, RunResult
 from .pr import commit_changes, create_branch, push_and_create_pr
 from .providers import ModelProvider
+from .receipt import ExecutionReceipt
 from .security import redact
 
 
@@ -80,11 +81,14 @@ def fix_issue(
     repo_root = git_root(start_dir)
     journal = RunJournal(repo_root)
     issue = Issue(number=issue_number, title="Unavailable")
+    receipt: ExecutionReceipt | None = None
     try:
+        receipt = ExecutionReceipt(repo_root, journal, config)
         journal.event(RunPhase.ANALYZING_ISSUE, f"Reading Issue #{issue_number}.")
         issue = load_issue(repo_root, issue_number, demo=demo)
         journal.event(RunPhase.SCANNING_REPOSITORY, "Selecting bounded repository context.")
         profile = explore(repo_root, issue, config)
+        receipt.task(issue, profile.test_commands)
         journal.event(RunPhase.CREATING_PLAN, "Requesting and validating a structured plan.")
         plan = create_plan(provider, issue, profile, config)
         journal.write_json("plan.json", {"issue": issue, "plan": plan, "repository": profile})
@@ -101,10 +105,14 @@ def fix_issue(
             )
 
         journal.event(RunPhase.CREATING_BRANCH, "Creating an isolated feature branch.")
+        receipt.require_clean_base(profile.default_branch)
         branch = create_branch(repo_root, issue, profile.default_branch)
+        receipt.expected_branch = branch
+        receipt.assert_identity(receipt.base)
         journal.event(RunPhase.EDITING_FILE, "Requesting and applying a policy-checked patch.")
         patch = request_patch(provider, plan, profile, config)
         changed_files = apply_patch(patch, profile, config)
+        receipt.patched(patch, changed_files)
         journal.write_json("changes.json", {"patch": patch, "changed_files": changed_files})
         journal.event(RunPhase.RUNNING_TEST, "Executing discovered quality commands.")
         tests = run_quality_checks(profile, config)
@@ -113,6 +121,7 @@ def fix_issue(
             RunPhase.REVIEWING_PATCH, "Checking scope, protected paths, diff whitespace and tests."
         )
         review = review_changes(repo_root, changed_files, tests, config)
+        receipt.verified(tests, review)
         test_summary = _test_summary(tests)
         journal.write_markdown(
             "summary.md",
@@ -163,7 +172,21 @@ def fix_issue(
         journal.event(
             RunPhase.CREATING_PR, "Committing reviewed changes and creating a Pull Request."
         )
-        commit_changes(repo_root, changed_files, issue, plan)
+        receipt.verified(tests, review)
+        revision = commit_changes(repo_root, changed_files, issue, plan)
+        receipt.committed(revision)
+        # A working-tree run is not exact-HEAD evidence. Verify the commit itself
+        # before any network write and preserve that separate result in the receipt.
+        tests = run_quality_checks(profile, config)
+        journal.write_json("test-results.json", tests)
+        review = review_changes(repo_root, changed_files, tests, config)
+        receipt.verified(tests, review, committed_head=revision)
+        if not review.approved:
+            raise RuntimeError(
+                "Committed candidate failed exact-HEAD verification; no push attempted."
+            )
+        review.changed_files = sorted(set(changed_files))
+        test_summary = _test_summary(tests)
         pr_url = push_and_create_pr(
             repo_root,
             branch,
@@ -175,6 +198,7 @@ def fix_issue(
             journal.run_dir / "pull-request.md",
         )
         message = f"Pull Request created: {pr_url}"
+        receipt.checkpoint("pr_created")
         journal.event(RunPhase.COMPLETED, message)
         return RunResult(
             run_dir=journal.run_dir,
@@ -189,6 +213,8 @@ def fix_issue(
             message=message,
         )
     except Exception as exc:
+        if receipt is not None:
+            receipt.failed()
         message = redact(str(exc))
         journal.event(RunPhase.FAILED, message, level="error")
         journal.write_markdown("summary.md", f"# TaskToPR run failed\n\n{message}\n")

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from ..config import TaskToPRConfig
 from ..models import CommandResult, ReviewResult, RiskLevel
+from ..receipt import changed_paths, git
 from ..security import is_protected, redact
 
 
@@ -29,17 +30,21 @@ def review_changes(
             f"Unexpected files changed outside the requested patch: {', '.join(unexpected)}"
         )
     failed_tests = [result for result in tests if result.return_code != 0 or result.blocked]
-    if failed_tests:
+    if failed_tests or not tests:
         findings.append(
             "At least one required test/quality command failed, timed out, or was unavailable."
         )
-    whitespace_problem = _diff_check(repo_root)
+    whitespace_problem = (
+        "unavailable"
+        if "[git-status-unavailable]" in untracked_or_modified
+        else _diff_check(repo_root)
+    )
     if whitespace_problem:
         findings.append(f"Git whitespace check failed: {whitespace_problem}")
     risk = RiskLevel.LOW
     if protected or unexpected:
         risk = RiskLevel.BLOCKED
-    elif failed_tests or whitespace_problem:
+    elif failed_tests or not tests or whitespace_problem:
         risk = RiskLevel.HIGH
     approved = not findings
     return ReviewResult(
@@ -48,41 +53,21 @@ def review_changes(
         findings=findings,
         changed_files=untracked_or_modified,
         scope_ok=not protected and not unexpected,
-        tests_ok=not failed_tests,
+        tests_ok=bool(tests) and not failed_tests,
     )
 
 
 def _changed_files(repo_root: Path) -> list[str]:
-    completed = subprocess.run(
-        ["git", "status", "--porcelain"],
-        cwd=repo_root,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=15,
-        shell=False,
-    )
-    if completed.returncode != 0:
+    try:
+        return changed_paths(repo_root)
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
         return ["[git-status-unavailable]"]
-    ignored_parts = {".tasktopr", "__pycache__", ".pytest_cache", ".mypy_cache"}
-    changed: list[str] = []
-    for line in completed.stdout.splitlines():
-        if len(line) < 4:
-            continue
-        path = line[3:].strip()
-        if path and not any(part in ignored_parts for part in Path(path).parts):
-            changed.append(path)
-    return sorted(changed)
 
 
 def _diff_check(repo_root: Path) -> str:
-    completed = subprocess.run(
-        ["git", "diff", "--check"],
-        cwd=repo_root,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=15,
-        shell=False,
-    )
-    return redact((completed.stderr or completed.stdout).strip()[-500:])
+    try:
+        return redact(
+            git(repo_root, "diff", "--no-ext-diff", "--no-textconv", "--check").decode("utf-8")
+        )
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
+        return "whitespace evidence unavailable or whitespace errors detected"

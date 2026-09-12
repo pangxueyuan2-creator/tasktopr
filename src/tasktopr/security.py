@@ -5,11 +5,11 @@ from __future__ import annotations
 import os
 import re
 import shutil
-import subprocess
 import sys
 import time
 from pathlib import Path
 
+from .bounded_process import BoundedProcessError, run_bounded_command
 from .models import CommandResult, RiskLevel
 
 _SECRET_PATTERNS = (
@@ -330,22 +330,37 @@ def run_safe_command(command: list[str], cwd: Path, timeout_seconds: int) -> Com
             execution_command = [sys.executable, *command[1:]]
         else:
             execution_command = [resolve_executable(command[0], cwd), *command[1:]]
-        completed = subprocess.run(
-            execution_command,
-            cwd=cwd,
-            check=False,
-            shell=False,
-            capture_output=True,
-            text=True,
-            errors="replace",
-            timeout=timeout_seconds,
-        )
+        if timeout_seconds <= 0:
+            return CommandResult(
+                command=command,
+                return_code=124,
+                elapsed_seconds=0.0,
+                reason="Timed out before execution.",
+                timed_out=True,
+            )
+        completed = run_bounded_command(execution_command, cwd, timeout_seconds)
+        reason = ""
+        if completed.timed_out:
+            reason = f"Timed out after {timeout_seconds} seconds."
+        elif completed.output_limit_exceeded:
+            reason = "Command exceeded the 1 MiB combined output budget."
+        elif completed.cancelled:
+            reason = "Command cancelled."
+        elif not completed.cleanup_complete:
+            reason = "Process-tree cleanup could not be confirmed."
         return CommandResult(
             command=command,
-            return_code=completed.returncode,
-            elapsed_seconds=round(time.monotonic() - started, 3),
-            stdout=redact(completed.stdout[-12_000:]),
-            stderr=redact(completed.stderr[-12_000:]),
+            return_code=completed.return_code,
+            elapsed_seconds=completed.elapsed_seconds,
+            stdout=redact(completed.stdout),
+            stderr=redact(completed.stderr),
+            reason=reason,
+            timed_out=completed.timed_out,
+            output_limit_exceeded=completed.output_limit_exceeded,
+            output_bytes=completed.output_bytes,
+            cancelled=completed.cancelled,
+            cleanup_complete=completed.cleanup_complete,
+            environment_policy="minimal-os-v1",
         )
     except SecurityError as exc:
         return CommandResult(
@@ -357,16 +372,7 @@ def run_safe_command(command: list[str], cwd: Path, timeout_seconds: int) -> Com
             blocked=True,
             reason=str(exc),
         )
-    except subprocess.TimeoutExpired as exc:
-        return CommandResult(
-            command=command,
-            return_code=124,
-            elapsed_seconds=round(time.monotonic() - started, 3),
-            stdout=redact(_timeout_text(exc.stdout)[-12_000:]),
-            stderr=redact(_timeout_text(exc.stderr)[-12_000:]),
-            reason=f"Timed out after {timeout_seconds} seconds.",
-        )
-    except OSError as exc:
+    except (OSError, BoundedProcessError) as exc:
         return CommandResult(
             command=command,
             return_code=127,
@@ -376,11 +382,3 @@ def run_safe_command(command: list[str], cwd: Path, timeout_seconds: int) -> Com
             blocked=True,
             reason=f"Executable could not be started: {redact(str(exc))}",
         )
-
-
-def _timeout_text(value: str | bytes | None) -> str:
-    """Normalize subprocess timeout output before redacting it."""
-
-    if isinstance(value, bytes):
-        return value.decode("utf-8", errors="replace")
-    return value or ""
