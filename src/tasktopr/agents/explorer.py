@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
 
 from ..config import TaskToPRConfig
 from ..models import Issue, RepositoryProfile
-from ..security import is_protected, redact
+from ..security import is_protected, redact, resolve_executable
 
 _IGNORED_PARTS = {
     ".git",
@@ -30,11 +31,23 @@ class RepositoryError(RuntimeError):
     """Raised when the current working directory is not a usable Git repository."""
 
 
+def _git_command(start: Path, *arguments: str) -> list[str]:
+    location = start.resolve()
+    anchor = next((p for p in (location, *location.parents) if (p / ".git").exists()), location)
+    return [resolve_executable("git", anchor), "-c", "core.fsmonitor=false", *arguments]
+
+
+def _git_environment() -> dict[str, str]:
+    environment = {k: v for k, v in os.environ.items() if not k.upper().startswith("GIT_")}
+    environment.update(GIT_TERMINAL_PROMPT="0", GIT_NO_REPLACE_OBJECTS="1")
+    return environment
+
+
 def git_root(start: Path) -> Path:
     """Return the current repository root without interpreting shell text."""
 
     completed = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"],
+        _git_command(start, "rev-parse", "--show-toplevel"),
         cwd=start,
         check=False,
         capture_output=True,
@@ -43,6 +56,7 @@ def git_root(start: Path) -> Path:
         errors="replace",
         timeout=15,
         shell=False,
+        env=_git_environment(),
     )
     if completed.returncode != 0:
         raise RepositoryError("TaskToPR must run inside a Git repository.")
@@ -53,7 +67,7 @@ def default_branch(repo_root: Path) -> str:
     """Resolve a safe base branch, preferring remote HEAD then common defaults."""
 
     completed = subprocess.run(
-        ["git", "symbolic-ref", "refs/remotes/origin/HEAD", "--short"],
+        _git_command(repo_root, "symbolic-ref", "refs/remotes/origin/HEAD", "--short"),
         cwd=repo_root,
         check=False,
         capture_output=True,
@@ -62,16 +76,18 @@ def default_branch(repo_root: Path) -> str:
         errors="replace",
         timeout=15,
         shell=False,
+        env=_git_environment(),
     )
     if completed.returncode == 0 and "/" in completed.stdout:
         return completed.stdout.strip().split("/", maxsplit=1)[1]
     for candidate in ("main", "master"):
         exists = subprocess.run(
-            ["git", "show-ref", "--verify", "--quiet", f"refs/heads/{candidate}"],
+            _git_command(repo_root, "show-ref", "--verify", "--quiet", f"refs/heads/{candidate}"),
             cwd=repo_root,
             check=False,
             timeout=15,
             shell=False,
+            env=_git_environment(),
         )
         if exists.returncode == 0:
             return candidate

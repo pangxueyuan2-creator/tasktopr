@@ -6,11 +6,15 @@ All notable changes are documented here. TaskToPR follows semantic versioning on
 
 ### Fixed
 
+- Reject stale branch, HEAD, index, configuration and file evidence before publication; missing test evidence cannot approve a review.
+- Reject masked index entries and executable Git content transformations before diffing, and disable repository Git hooks/fsmonitor for controlled operations.
 - `doctor` no longer crashes with `FileNotFoundError` when `git` or `gh` are missing; it reports a clear WARN instead.
 - `is_protected` and `path_risk` now normalize backslashes so Windows-style paths (e.g. `.github\workflows\ci.yml`) are classified the same as forward-slash paths.
 
 ### Added
 
+- Content-addressed execution receipts with separate working-tree and committed-HEAD verification, without raw prompts, command arguments or output.
+- Bounded quality-command output, minimal inherited environment, deadlines/cancellation and process cleanup, including Windows Job Objects.
 - Regression tests for missing `gh` in `doctor` and for path-separator normalization in protected-path checks.
 
 ## [0.1.0] - 2026-08-13

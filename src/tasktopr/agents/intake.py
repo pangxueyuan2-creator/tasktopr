@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ..models import Issue
-from ..security import redact
+from ..security import redact, resolve_executable
 
 
 class IssueIntakeError(RuntimeError):
@@ -21,7 +21,7 @@ def load_issue(repo_root: Path, issue_number: int, *, demo: bool = False) -> Iss
     if demo:
         return _load_demo_issue(repo_root, issue_number)
     command = [
-        "gh",
+        resolve_executable("gh", repo_root),
         "issue",
         "view",
         str(issue_number),

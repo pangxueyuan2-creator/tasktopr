@@ -99,6 +99,12 @@ class CommandResult(BaseModel):
     stderr: str = ""
     blocked: bool = False
     reason: str = ""
+    timed_out: bool = False
+    output_limit_exceeded: bool = False
+    cancelled: bool = False
+    output_bytes: int = 0
+    cleanup_complete: bool = True
+    environment_policy: str = "unknown"
 
 
 class ReviewResult(BaseModel):

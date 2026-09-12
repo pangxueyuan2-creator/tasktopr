@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from pathlib import Path
 
 from .models import ChangePlan, Issue, ReviewResult
-from .security import SecurityError, redact
+from .security import SecurityError, redact, resolve_executable
 
 
 class PullRequestError(RuntimeError):
@@ -74,7 +75,7 @@ def push_and_create_pr(
             "--head",
             branch,
             "--title",
-            f"Fix #{issue.number}: {issue.title}",
+            redact(f"Fix #{issue.number}: {issue.title}"),
             "--body-file",
             str(body_path),
             "--no-maintainer-edit",
@@ -90,7 +91,7 @@ def _render_pr_body(issue: Issue, plan: ChangePlan, review: ReviewResult, test_s
         "\n".join(f"- {finding}" for finding in review.findings)
         or "- Low: deterministic review approved."
     )
-    return f"""## Problem
+    return redact(f"""## Problem
 Fixes #{issue.number}. {issue.title}
 
 ## Root cause
@@ -107,7 +108,7 @@ Fixes #{issue.number}. {issue.title}
 
 ## Files changed
 {files}
-"""
+""")
 
 
 def _slug(value: str) -> str:
@@ -116,11 +117,27 @@ def _slug(value: str) -> str:
 
 
 def _run_git(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
-    return _run(command, cwd)
+    return _run(
+        [
+            resolve_executable("git", cwd),
+            "-c",
+            f"core.hooksPath={os.devnull}",
+            "-c",
+            "core.fsmonitor=false",
+            *command[1:],
+        ],
+        cwd,
+    )
 
 
 def _run(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     try:
+        environment = {
+            key: value for key, value in os.environ.items() if not key.upper().startswith("GIT_")
+        }
+        environment.update(GIT_TERMINAL_PROMPT="0", GIT_NO_REPLACE_OBJECTS="1")
+        if command[0] == "gh":
+            command = [resolve_executable("gh", cwd), *command[1:]]
         completed = subprocess.run(
             command,
             cwd=cwd,
@@ -129,6 +146,7 @@ def _run(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
             text=True,
             timeout=60,
             shell=False,
+            env=environment,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise PullRequestError(f"Command could not complete: {redact(str(exc))}") from exc
