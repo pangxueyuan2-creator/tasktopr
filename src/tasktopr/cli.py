@@ -73,11 +73,15 @@ def _prompt_plan_approval(plan: ChangePlan) -> PlanApproval:
         console.print("[yellow]Approval prompt is non-interactive; rejecting without mutation.[/]")
         return PlanApproval(decision=ApprovalDecision.REJECT)
 
-    decision = typer.prompt(
-        "Decision (approve/edit/reject)",
-        default=ApprovalDecision.REJECT.value,
-        show_default=True,
-    ).strip().casefold()
+    decision = (
+        typer.prompt(
+            "Decision (approve/edit/reject)",
+            default=ApprovalDecision.REJECT.value,
+            show_default=True,
+        )
+        .strip()
+        .casefold()
+    )
     if decision == ApprovalDecision.APPROVE.value:
         return PlanApproval(decision=ApprovalDecision.APPROVE)
     if decision == ApprovalDecision.REJECT.value:
@@ -87,7 +91,9 @@ def _prompt_plan_approval(plan: ChangePlan) -> PlanApproval:
         try:
             edited = ChangePlan.model_validate_json(raw)
         except ValidationError as exc:
-            raise RuntimeError("Edited plan failed the normal ChangePlan validation boundary.") from exc
+            raise RuntimeError(
+                "Edited plan failed the normal ChangePlan validation boundary."
+            ) from exc
         return PlanApproval(decision=ApprovalDecision.EDIT, plan=edited)
     raise RuntimeError("Approval decision must be approve, edit, or reject.")
 
