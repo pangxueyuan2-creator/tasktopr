@@ -1,13 +1,18 @@
-"""Exercise the built wheel as an external Safe Delivery evidence producer."""
+"""Exercise installed TaskToPR -> PatchWitness Safe Delivery end to end."""
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+PATCHWITNESS_REPOSITORY = "https://github.com/pangxueyuan2-creator/patchwitness.git"
+PATCHWITNESS_REVISION = "e44d2c7ccea615bb4b43449e77573e02c0bcbb60"
+PATCHWITNESS_POLICY_PATH = ".pw-policy.toml"
 
 
 def digest(value: object) -> str:
@@ -22,36 +27,27 @@ def digest(value: object) -> str:
     ).hexdigest()
 
 
-def fixture_receipt() -> dict[str, object]:
-    payload: dict[str, object] = {
-        "schema_version": 1,
-        "run_id": "external-consumer-secret-run-id",
-        "started_at": "2026-09-14T00:00:00+00:00",
-        "repository_identity": {"kind": "local-root-sha256", "sha256": "1" * 64},
-        "base_sha": "2" * 40,
-        "result_head_sha": "3" * 40,
-        "tested_head_sha": "3" * 40,
-        "policy": {"version": "tasktopr-execution-v1", "sha256": "4" * 64},
-        "tool": {"name": "tasktopr", "version": "0.1.0", "source_sha256": "5" * 64},
-        "task_sha256": "6" * 64,
-        "patch_sha256": "7" * 64,
-        "command_list_sha256": "8" * 64,
-        "test_result_sha256": "9" * 64,
-        "changed_file_manifest": [{"path_sha256": "a" * 64, "before": "b" * 64, "after": "c" * 64}],
-        "protected_path_decision": "allow",
-        "tests": {"status": "pass", "count": 1},
-        "ci": "unknown",
-        "human_review": "unknown",
-        "decision": "REVIEW_REQUIRED",
-        "trust_boundary": "local observation",
-        "phase": "verified_head",
-        "branch_sha256": "d" * 64,
-    }
-    return {"payload": payload, "receipt_sha256": digest(payload)}
+def file_digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def run(command: list[str], *, expected: int = 0) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=60)
+def run(
+    command: list[str],
+    *,
+    cwd: Path | None = None,
+    env: dict[str, str] | None = None,
+    expected: int = 0,
+    timeout: int = 180,
+) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(
+        command,
+        cwd=cwd,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=timeout,
+    )
     if result.returncode != expected:
         raise RuntimeError(
             f"command returned {result.returncode}, expected {expected}: {command}\n"
@@ -60,69 +56,353 @@ def run(command: list[str], *, expected: int = 0) -> subprocess.CompletedProcess
     return result
 
 
+def git(root: Path, *arguments: str) -> str:
+    return run(["git", "-C", str(root), *arguments]).stdout.strip()
+
+
+def source_revision() -> str:
+    root = Path(__file__).resolve().parents[1]
+    revision = git(root, "rev-parse", "HEAD")
+    if len(revision) != 40 or any(char not in "0123456789abcdef" for char in revision):
+        raise RuntimeError("TaskToPR checkout is not bound to an exact Git SHA")
+    return revision
+
+
+def create_fixture(root: Path) -> tuple[Path, str]:
+    remote = root / "remote.git"
+    repository = root / "consumer-repository"
+    run(["git", "init", "--bare", str(remote)])
+    run(["git", "init", "-b", "main", str(repository)])
+    git(repository, "config", "user.name", "Installed Consumer Fixture")
+    git(repository, "config", "user.email", "fixture@example.invalid")
+
+    (repository / ".gitignore").write_text(".tasktopr/\n__pycache__/\n*.pyc\n", encoding="utf-8")
+    (repository / ".tasktopr.toml").write_text(
+        """[agent]\nprovider = \"demo\"\n\n[testing]\ncommands = [[\"python\", \"-m\", \"unittest\", \"discover\", \"-v\"]]\n""",
+        encoding="utf-8",
+    )
+    (repository / PATCHWITNESS_POLICY_PATH).write_text(
+        'id = "installed-safe-delivery-fixture"\ngoal = "verify the exact installed consumer candidate"\n',
+        encoding="utf-8",
+    )
+    demo_issue = {
+        "number": 1,
+        "title": "Prevent a crash when dividing by zero",
+        "body": (
+            "The calculator crashes when the denominator is zero.\n\n"
+            "Acceptance criteria:\n"
+            "- divide(8, 0) raises a clear ValueError\n"
+            "- normal division continues to work\n\n"
+            "Constraints:\n"
+            "- Do not refactor unrelated arithmetic behavior"
+        ),
+        "url": "https://example.invalid/issues/1",
+        "labels": [{"name": "bug"}],
+    }
+    (repository / ".tasktopr-demo-issue.json").write_text(
+        json.dumps(demo_issue, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (repository / "calculator.py").write_text(
+        "def divide(numerator: float, denominator: float) -> float:\n"
+        "    return numerator / denominator\n",
+        encoding="utf-8",
+    )
+    (repository / "test_calculator.py").write_text(
+        "import unittest\n\n"
+        "from calculator import divide\n\n\n"
+        "class DivideTests(unittest.TestCase):\n"
+        "    def test_divide_returns_quotient(self) -> None:\n"
+        "        self.assertEqual(divide(8, 2), 4)\n",
+        encoding="utf-8",
+    )
+    git(
+        repository,
+        "add",
+        "--",
+        ".gitignore",
+        ".tasktopr.toml",
+        PATCHWITNESS_POLICY_PATH,
+        ".tasktopr-demo-issue.json",
+        "calculator.py",
+        "test_calculator.py",
+    )
+    git(repository, "commit", "-m", "fixture base")
+    base = git(repository, "rev-parse", "HEAD")
+    git(repository, "remote", "add", "origin", str(remote))
+    git(repository, "push", "-u", "origin", "main")
+    return repository, base
+
+
+def create_fake_gh(root: Path) -> Path:
+    tools = root / "tools"
+    tools.mkdir()
+    executable = tools / "gh"
+    executable.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "if sys.argv[1:3] != ['pr', 'create']:\n"
+        "    raise SystemExit(2)\n"
+        "print('https://example.invalid/tasktopr/installed-consumer/pull/1')\n",
+        encoding="utf-8",
+    )
+    executable.chmod(0o755)
+    return tools
+
+
+def newest_run(repository: Path) -> Path:
+    runs = sorted((repository / ".tasktopr" / "runs").iterdir())
+    if len(runs) != 1:
+        raise RuntimeError("expected exactly one TaskToPR run in the synthetic repository")
+    return runs[0]
+
+
+def build_patchwitness_wheel(python: Path, root: Path) -> Path:
+    wheels = root / "patchwitness-dist"
+    wheels.mkdir()
+    run(
+        [
+            str(python),
+            "-m",
+            "pip",
+            "wheel",
+            "--disable-pip-version-check",
+            "--no-deps",
+            "--wheel-dir",
+            str(wheels),
+            f"git+{PATCHWITNESS_REPOSITORY}@{PATCHWITNESS_REVISION}",
+        ],
+        cwd=root,
+        timeout=240,
+    )
+    candidates = sorted(wheels.glob("patchwitness-*.whl"))
+    if len(candidates) != 1:
+        raise RuntimeError("expected exactly one PatchWitness wheel")
+    return candidates[0]
+
+
+def verify_rejected(
+    cli: Path,
+    handoff: Path,
+    *,
+    tasktopr_revision: str,
+    base: str,
+    repository: Path,
+    output: Path,
+) -> None:
+    result = run(
+        [
+            str(cli),
+            "--json",
+            "tasktopr",
+            "--handoff",
+            str(handoff),
+            "--tasktopr-revision",
+            tasktopr_revision,
+            "--base",
+            base,
+            "--policy-ref",
+            base,
+            "--policy-path",
+            PATCHWITNESS_POLICY_PATH,
+            "--output",
+            str(output),
+        ],
+        cwd=repository,
+        expected=2,
+    )
+    payload = json.loads(result.stdout)
+    if payload.get("ok") is not False or output.exists():
+        raise RuntimeError("PatchWitness did not fail closed for rejected execution evidence")
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         raise SystemExit("usage: installed_handoff_smoke.py DIST_DIRECTORY")
-    wheels = sorted(Path(sys.argv[1]).glob("tasktopr-*.whl"))
-    if len(wheels) != 1:
+    tasktopr_wheels = sorted(Path(sys.argv[1]).glob("tasktopr-*.whl"))
+    if len(tasktopr_wheels) != 1:
         raise RuntimeError("expected exactly one TaskToPR wheel")
+    tasktopr_wheel = tasktopr_wheels[0].resolve()
+    tasktopr_revision = source_revision()
 
-    with tempfile.TemporaryDirectory(prefix="tasktopr-installed-consumer-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="tasktopr-patchwitness-consumer-") as temporary:
         root = Path(temporary)
         venv = root / "venv"
         run([sys.executable, "-m", "venv", str(venv)])
-        python = venv / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
-        exporter = venv / (
-            "Scripts/tasktopr-export-evidence.exe"
+        scripts = venv / ("Scripts" if sys.platform == "win32" else "bin")
+        python = scripts / ("python.exe" if sys.platform == "win32" else "python")
+        tasktopr = scripts / ("tasktopr.exe" if sys.platform == "win32" else "tasktopr")
+        exporter = scripts / (
+            "tasktopr-export-evidence.exe"
             if sys.platform == "win32"
-            else "bin/tasktopr-export-evidence"
+            else "tasktopr-export-evidence"
         )
-        run([str(python), "-m", "pip", "install", "--no-deps", str(wheels[0])])
-        if not exporter.is_file():
-            raise RuntimeError("built wheel did not install the evidence exporter entry point")
+        patchwitness = scripts / (
+            "patchwitness-safe-delivery.exe"
+            if sys.platform == "win32"
+            else "patchwitness-safe-delivery"
+        )
 
-        receipt_path = root / "execution-receipt.json"
-        output_path = root / "execution-handoff.json"
-        receipt_path.write_text(json.dumps(fixture_receipt()), encoding="utf-8")
         run(
             [
-                str(exporter),
-                str(receipt_path),
-                "--tool-revision",
-                "e" * 40,
-                "--output",
-                str(output_path),
-            ]
-        )
-        report = json.loads(output_path.read_text(encoding="utf-8"))
-        payload = report["payload"]
-        if payload["schema_version"] != "tasktopr.dev/safe-delivery/execution/v1":
-            raise RuntimeError("installed exporter emitted the wrong schema")
-        if payload["change"]["head_sha"] != "3" * 40:
-            raise RuntimeError("installed exporter lost exact-head identity")
-        if payload["producer"]["git_revision"] != "e" * 40:
-            raise RuntimeError("installed exporter lost the reviewer-pinned producer revision")
-        serialized = json.dumps(report, sort_keys=True)
-        if "external-consumer-secret-run-id" in serialized:
-            raise RuntimeError("installed exporter leaked run-local metadata")
-
-        tampered = fixture_receipt()
-        tampered["receipt_sha256"] = "f" * 64
-        receipt_path.write_text(json.dumps(tampered), encoding="utf-8")
-        rejected_path = root / "rejected.json"
-        run(
-            [
-                str(exporter),
-                str(receipt_path),
-                "--tool-revision",
-                "e" * 40,
-                "--output",
-                str(rejected_path),
+                str(python),
+                "-m",
+                "pip",
+                "install",
+                "--disable-pip-version-check",
+                str(tasktopr_wheel),
             ],
-            expected=2,
+            cwd=root,
+            timeout=240,
         )
-        if rejected_path.exists():
-            raise RuntimeError("installed exporter wrote output for a tampered receipt")
+        patchwitness_wheel = build_patchwitness_wheel(python, root)
+        run(
+            [
+                str(python),
+                "-m",
+                "pip",
+                "install",
+                "--disable-pip-version-check",
+                "--no-deps",
+                str(patchwitness_wheel),
+            ],
+            cwd=root,
+        )
+        for executable in (tasktopr, exporter, patchwitness):
+            if not executable.is_file():
+                raise RuntimeError(f"installed entry point is missing: {executable.name}")
+
+        repository, base = create_fixture(root)
+        tools = create_fake_gh(root)
+        environment = os.environ.copy()
+        environment["PATH"] = os.pathsep.join((str(tools), str(scripts), environment["PATH"]))
+        environment["PYTHONNOUSERSITE"] = "1"
+        environment.pop("PYTHONPATH", None)
+        environment.pop("PYTHONHOME", None)
+
+        run([str(tasktopr), "fix", "1", "--demo"], cwd=repository, env=environment)
+        run_dir = newest_run(repository)
+        receipt = run_dir / "execution-receipt.json"
+        if not receipt.is_file():
+            raise RuntimeError("installed TaskToPR run did not emit an execution receipt")
+        candidate = git(repository, "rev-parse", "HEAD")
+        if candidate == base:
+            raise RuntimeError("installed TaskToPR run did not produce a candidate commit")
+
+        handoff = root / "execution-handoff.json"
+        handoff_repeat = root / "execution-handoff-repeat.json"
+        for target in (handoff, handoff_repeat):
+            run(
+                [
+                    str(exporter),
+                    str(receipt),
+                    "--tool-revision",
+                    tasktopr_revision,
+                    "--output",
+                    str(target),
+                ],
+                cwd=repository,
+                env=environment,
+            )
+        if handoff.read_bytes() != handoff_repeat.read_bytes():
+            raise RuntimeError("identical execution evidence did not export deterministically")
+
+        handoff_report = json.loads(handoff.read_text(encoding="utf-8"))
+        handoff_payload = handoff_report["payload"]
+        if handoff_payload["schema_version"] != "tasktopr.dev/safe-delivery/execution/v1":
+            raise RuntimeError("installed TaskToPR exporter emitted the wrong handoff schema")
+        if handoff_payload["change"]["base_sha"] != base:
+            raise RuntimeError("TaskToPR handoff lost the exact base revision")
+        if handoff_payload["change"]["head_sha"] != candidate:
+            raise RuntimeError("TaskToPR handoff lost the exact tested candidate revision")
+        if handoff_payload["producer"]["git_revision"] != tasktopr_revision:
+            raise RuntimeError("TaskToPR handoff lost the exact producer revision")
+
+        passport = root / "safe-delivery.json"
+        composed = run(
+            [
+                str(patchwitness),
+                "--json",
+                "tasktopr",
+                "--handoff",
+                str(handoff),
+                "--tasktopr-revision",
+                tasktopr_revision,
+                "--base",
+                base,
+                "--policy-ref",
+                base,
+                "--policy-path",
+                PATCHWITNESS_POLICY_PATH,
+                "--output",
+                str(passport),
+            ],
+            cwd=repository,
+            env=environment,
+        )
+        composition = json.loads(composed.stdout)
+        if composition["ok"] is not True or composition["decision"] != "UNKNOWN":
+            raise RuntimeError("PatchWitness upgraded execution evidence into merge authority")
+
+        first_verify = run(
+            [str(patchwitness), "--json", "verify", str(passport)],
+            cwd=repository,
+            env=environment,
+        )
+        second_verify = run(
+            [str(patchwitness), "--json", "verify", str(passport)],
+            cwd=repository,
+            env=environment,
+        )
+        verified = json.loads(first_verify.stdout)
+        verified_repeat = json.loads(second_verify.stdout)
+        if verified != verified_repeat:
+            raise RuntimeError("offline verification was not deterministic for identical evidence")
+        if verified["ok"] is not True or verified["decision"] != "UNKNOWN":
+            raise RuntimeError("installed PatchWitness did not verify the Change Passport")
+        if verified["receipt_sha256"] != composition["receipt_sha256"]:
+            raise RuntimeError("offline verification changed the Change Passport receipt identity")
+
+        tampered_report = json.loads(handoff.read_text(encoding="utf-8"))
+        tampered_report["receipt_sha256"] = "0" * 64
+        tampered_handoff = root / "tampered-handoff.json"
+        tampered_handoff.write_text(json.dumps(tampered_report), encoding="utf-8")
+        verify_rejected(
+            patchwitness,
+            tampered_handoff,
+            tasktopr_revision=tasktopr_revision,
+            base=base,
+            repository=repository,
+            output=root / "tampered-passport.json",
+        )
+
+        incomplete_report = json.loads(handoff.read_text(encoding="utf-8"))
+        incomplete_report["payload"]["verification"]["complete"] = False
+        incomplete_report["receipt_sha256"] = digest(incomplete_report["payload"])
+        incomplete_handoff = root / "incomplete-handoff.json"
+        incomplete_handoff.write_text(json.dumps(incomplete_report), encoding="utf-8")
+        verify_rejected(
+            patchwitness,
+            incomplete_handoff,
+            tasktopr_revision=tasktopr_revision,
+            base=base,
+            repository=repository,
+            output=root / "incomplete-passport.json",
+        )
+
+        summary = {
+            "decision": verified["decision"],
+            "passport_receipt_sha256": verified["receipt_sha256"],
+            "tasktopr_revision": tasktopr_revision,
+            "tasktopr_wheel_sha256": file_digest(tasktopr_wheel),
+            "patchwitness_revision": PATCHWITNESS_REVISION,
+            "patchwitness_wheel_sha256": file_digest(patchwitness_wheel),
+            "base_sha": base,
+            "candidate_sha": candidate,
+            "tampered_handoff_rejected": True,
+            "incomplete_handoff_rejected": True,
+        }
+        print(json.dumps(summary, sort_keys=True))
     return 0
 
 
