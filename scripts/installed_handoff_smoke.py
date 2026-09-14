@@ -84,6 +84,24 @@ def create_fixture(root: Path) -> tuple[Path, str]:
         'id = "installed-safe-delivery-fixture"\ngoal = "verify the exact installed consumer candidate"\n',
         encoding="utf-8",
     )
+    demo_issue = {
+        "number": 1,
+        "title": "Prevent a crash when dividing by zero",
+        "body": (
+            "The calculator crashes when the denominator is zero.\n\n"
+            "Acceptance criteria:\n"
+            "- divide(8, 0) raises a clear ValueError\n"
+            "- normal division continues to work\n\n"
+            "Constraints:\n"
+            "- Do not refactor unrelated arithmetic behavior"
+        ),
+        "url": "https://example.invalid/issues/1",
+        "labels": [{"name": "bug"}],
+    }
+    (repository / ".tasktopr-demo-issue.json").write_text(
+        json.dumps(demo_issue, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     (repository / "calculator.py").write_text(
         "def divide(numerator: float, denominator: float) -> float:\n"
         "    return numerator / denominator\n",
@@ -104,6 +122,7 @@ def create_fixture(root: Path) -> tuple[Path, str]:
         ".gitignore",
         ".tasktopr.toml",
         ".patchwitness.toml",
+        ".tasktopr-demo-issue.json",
         "calculator.py",
         "test_calculator.py",
     )
