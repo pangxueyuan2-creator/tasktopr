@@ -61,7 +61,7 @@ def _object(value: Any, name: str) -> dict[str, Any]:
 def _list(value: Any, name: str) -> list[Any]:
     if not isinstance(value, list):
         raise HandoffError(f"{name} must be a JSON array")
-    return cast(list[Any], value)
+    return value
 
 
 def _string(value: Any, name: str) -> str:
