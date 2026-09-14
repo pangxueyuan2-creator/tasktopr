@@ -1,0 +1,66 @@
+{
+  "status": "active",
+  "product_role": "Safe Delivery execution surface",
+  "release_stage": "early-v0.1",
+  "state_authority": [
+    "live GitHub objects and exact-head CI",
+    "current repository code and tests",
+    "PROJECT_STATE.yaml",
+    "human documentation"
+  ],
+  "observed_main": {
+    "sha": "e332deb08eacbcebd4cde2f9023fa42609753bae",
+    "commit_title": "Preserve portable patch text and exact rollback bytes",
+    "codeql": {
+      "run_id": 34677114858,
+      "status": "completed",
+      "conclusion": "success"
+    },
+    "observation_note": "Snapshot recorded from live GitHub state on 2026-09-14; do not treat it as a permanent current-head claim after later commits."
+  },
+  "completed": [
+    "Local-first single-Issue CLI pipeline with bounded plan, patch, test, review and optional PR phases",
+    "Per-run evidence bundles under .tasktopr/runs with structured events, plan, changes, test results and summary",
+    "Deterministic protected-path, path-containment, command, Git and credential-redaction boundaries",
+    "Python and Node/TypeScript repository support with allowlisted test/build discovery",
+    "Portable patch-text preservation and exact rollback-byte behavior",
+    "Public separation of roles between GuardSpec, TaskToPR and PatchWitness"
+  ],
+  "current": [
+    "Restore explicit root governance for coding agents and project state",
+    "Define a narrow versioned handoff from TaskToPR execution receipts into PatchWitness / Change Passport evidence",
+    "Prefer installed/external-consumer Safe Delivery proof over unrelated standalone feature expansion",
+    "Keep dependency/control-plane PRs subject to existing security and review gates"
+  ],
+  "next": [
+    "Specify the minimal TaskToPR-to-PatchWitness evidence contract: exact revision identity, bounded command/test results, changed-file scope, rollback identity, decision state and receipt/version provenance",
+    "Add an external-consumer fixture that exercises the installed TaskToPR path and hands sanitized evidence to PatchWitness without executing untrusted repository-owned commands implicitly",
+    "Use conservative outcome semantics for handoff validation, including explicit unknown/review-required states where evidence is incomplete",
+    "Advance the ROADMAP human plan-approval slice only after the Safe Delivery handoff contract is stable and tested"
+  ],
+  "blocked": [
+    "External product-demand or buyer validation cannot be fabricated; record real external validation separately when available"
+  ],
+  "non_goals": [
+    "Hosted autonomous Issue pickup",
+    "Scheduled unattended repository mutation",
+    "Auto-merge",
+    "Cross-repository mutation by default",
+    "Unrestricted shell execution",
+    "Force push or default-branch writes",
+    "Weakening protected paths, GitHub Actions, CodeQL, review requirements or security controls"
+  ],
+  "integration_boundary": {
+    "tasktopr": "bounded execution and run evidence",
+    "patchwitness": "post-change review, evidence composition and Change Passport verification",
+    "guardspec": "pre-work repository-rule checks",
+    "rule": "Integrate through explicit versioned evidence contracts rather than copying implementations or creating a new Safe Delivery repository."
+  },
+  "definition_of_done": [
+    "Exact PR-head checks are green without bypasses",
+    "Normal behavior and safety/failure paths are tested",
+    "Evidence claims match observed execution",
+    "No secrets or sensitive private data are persisted",
+    "Product/state documentation is updated when behavior materially changes"
+  ]
+}
