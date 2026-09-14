@@ -9,14 +9,9 @@
     "human documentation"
   ],
   "observed_main": {
-    "sha": "e332deb08eacbcebd4cde2f9023fa42609753bae",
-    "commit_title": "Preserve portable patch text and exact rollback bytes",
-    "codeql": {
-      "run_id": 34677114858,
-      "status": "completed",
-      "conclusion": "success"
-    },
-    "observation_note": "Snapshot recorded from live GitHub state on 2026-09-14; do not treat it as a permanent current-head claim after later commits."
+    "sha": "f90667ca614072a2a8632f632b9826a521b1f190",
+    "commit_title": "chore: add root governance for Safe Delivery execution (#32)",
+    "observation_note": "Snapshot recorded from live GitHub state before the Safe Delivery handoff branch on 2026-09-14; live GitHub state remains authoritative after later commits."
   },
   "completed": [
     "Local-first single-Issue CLI pipeline with bounded plan, patch, test, review and optional PR phases",
@@ -24,18 +19,21 @@
     "Deterministic protected-path, path-containment, command, Git and credential-redaction boundaries",
     "Python and Node/TypeScript repository support with allowlisted test/build discovery",
     "Portable patch-text preservation and exact rollback-byte behavior",
-    "Public separation of roles between GuardSpec, TaskToPR and PatchWitness"
+    "Public separation of roles between GuardSpec, TaskToPR and PatchWitness",
+    "Root AGENTS.md governance and repository product-state authority",
+    "Versioned sanitized exact-HEAD execution handoff with a reviewer-supplied TaskToPR producer pin",
+    "Built-wheel external-consumer smoke for the installed Safe Delivery evidence exporter, including tamper rejection"
   ],
   "current": [
-    "Restore explicit root governance for coding agents and project state",
-    "Define a narrow versioned handoff from TaskToPR execution receipts into PatchWitness / Change Passport evidence",
+    "Keep TaskToPR as the bounded Safe Delivery execution producer rather than a second evidence-composition product",
+    "Integrate the execution handoff through an explicit PatchWitness adapter that independently derives Git subject and reviewer-owned policy identities",
     "Prefer installed/external-consumer Safe Delivery proof over unrelated standalone feature expansion",
     "Keep dependency/control-plane PRs subject to existing security and review gates"
   ],
   "next": [
-    "Specify the minimal TaskToPR-to-PatchWitness evidence contract: exact revision identity, bounded command/test results, changed-file scope, rollback identity, decision state and receipt/version provenance",
-    "Add an external-consumer fixture that exercises the installed TaskToPR path and hands sanitized evidence to PatchWitness without executing untrusted repository-owned commands implicitly",
-    "Use conservative outcome semantics for handoff validation, including explicit unknown/review-required states where evidence is incomplete",
+    "Add a PatchWitness-side adapter for tasktopr.dev/safe-delivery/execution/v1 that preserves conservative FAIL, REVIEW_REQUIRED and UNKNOWN semantics",
+    "Add an end-to-end installed consumer fixture that combines independently derived PatchWitness subject evidence with a pinned TaskToPR handoff without importing candidate-controlled code",
+    "Bind hosted exact-head CI/review evidence only through authenticated collector inputs; never infer those states from a local TaskToPR receipt",
     "Advance the ROADMAP human plan-approval slice only after the Safe Delivery handoff contract is stable and tested"
   ],
   "blocked": [
@@ -48,19 +46,22 @@
     "Cross-repository mutation by default",
     "Unrestricted shell execution",
     "Force push or default-branch writes",
+    "Treating TaskToPR's hashed change scope as PatchWitness's independently derived manifest",
+    "Treating TaskToPR's execution-policy digest as PatchWitness's reviewer-owned composition policy",
     "Weakening protected paths, GitHub Actions, CodeQL, review requirements or security controls"
   ],
   "integration_boundary": {
-    "tasktopr": "bounded execution and run evidence",
-    "patchwitness": "post-change review, evidence composition and Change Passport verification",
+    "tasktopr": "bounded execution and sanitized versioned run evidence",
+    "patchwitness": "independent Git subject derivation, post-change review, evidence composition and Change Passport verification",
     "guardspec": "pre-work repository-rule checks",
-    "rule": "Integrate through explicit versioned evidence contracts rather than copying implementations or creating a new Safe Delivery repository."
+    "rule": "Integrate through explicit versioned evidence contracts and independently trusted producer pins; do not copy implementations or collapse distinct policy/manifest identities."
   },
   "definition_of_done": [
     "Exact PR-head checks are green without bypasses",
     "Normal behavior and safety/failure paths are tested",
     "Evidence claims match observed execution",
     "No secrets or sensitive private data are persisted",
+    "Installed/external-consumer paths are exercised for portable evidence boundaries",
     "Product/state documentation is updated when behavior materially changes"
   ]
 }

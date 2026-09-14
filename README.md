@@ -43,6 +43,17 @@ Each run creates a folder containing:
 
 These are ordinary files you can read and keep.
 
+A completed exact-HEAD execution receipt can also be converted into a small, sanitized, versioned handoff for downstream Safe Delivery tooling:
+
+```bash
+tasktopr-export-evidence \
+  .tasktopr/runs/<run>/execution-receipt.json \
+  --tool-revision <reviewer-pinned-tasktopr-commit> \
+  --output execution-handoff.json
+```
+
+See the [Safe Delivery execution handoff](docs/safe-delivery-handoff.md) for the schema and trust boundary. The handoff is integrity evidence, not a signature, PatchWitness policy, merge approval, or release authorization.
+
 ## Safety boundaries (current)
 
 - Paths are resolved inside the Git root; path traversal is blocked
@@ -60,7 +71,7 @@ These are separate projects that answer different questions. You can use any com
 - [GuardSpec](https://github.com/pangxueyuan2-creator/guardspec) — **before** work starts: check whether the repository’s explicit agent rules allow the proposed paths/commands
 - [PatchWitness](https://github.com/pangxueyuan2-creator/patchwitness) — **after** a change exists: produce a Change Passport that records scope, protected paths, and which checks actually ran
 
-TaskToPR does not depend on either tool.
+TaskToPR does not depend on either tool. Its Safe Delivery handoff is a versioned producer boundary that PatchWitness can consume without TaskToPR claiming PatchWitness's independently derived subject or reviewer-owned policy.
 
 ## Demo
 
