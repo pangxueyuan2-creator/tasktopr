@@ -37,9 +37,7 @@ def fixture_receipt() -> dict[str, object]:
         "patch_sha256": "7" * 64,
         "command_list_sha256": "8" * 64,
         "test_result_sha256": "9" * 64,
-        "changed_file_manifest": [
-            {"path_sha256": "a" * 64, "before": "b" * 64, "after": "c" * 64}
-        ],
+        "changed_file_manifest": [{"path_sha256": "a" * 64, "before": "b" * 64, "after": "c" * 64}],
         "protected_path_decision": "allow",
         "tests": {"status": "pass", "count": 1},
         "ci": "unknown",
