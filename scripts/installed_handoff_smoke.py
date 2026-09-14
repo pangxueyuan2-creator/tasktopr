@@ -76,9 +76,7 @@ def create_fixture(root: Path) -> tuple[Path, str]:
     git(repository, "config", "user.name", "Installed Consumer Fixture")
     git(repository, "config", "user.email", "fixture@example.invalid")
 
-    (repository / ".gitignore").write_text(
-        ".tasktopr/\n__pycache__/\n*.pyc\n", encoding="utf-8"
-    )
+    (repository / ".gitignore").write_text(".tasktopr/\n__pycache__/\n*.pyc\n", encoding="utf-8")
     (repository / ".tasktopr.toml").write_text(
         """[agent]\nprovider = \"demo\"\n\n[testing]\ncommands = [[\"python\", \"-m\", \"unittest\", \"discover\", \"-v\"]]\n""",
         encoding="utf-8",
