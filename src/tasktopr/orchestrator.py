@@ -118,9 +118,7 @@ def fix_issue(
             )
             journal.write_json("plan-approval.json", approval_record)
             if approved_plan is None:
-                message = (
-                    "Plan rejected. No branch, files, tests, commit, push or Pull Request were created."
-                )
+                message = "Plan rejected. No branch, files, tests, commit, push or Pull Request were created."
                 journal.write_json("changes.json", {"changed_files": [], "mode": "rejected"})
                 journal.write_json("test-results.json", [])
                 journal.write_markdown("summary.md", _summary(issue, plan.summary, [], [], message))
@@ -133,9 +131,7 @@ def fix_issue(
                     message=message,
                 )
             plan = approved_plan
-            journal.write_json(
-                "plan.json", {"issue": issue, "plan": plan, "repository": profile}
-            )
+            journal.write_json("plan.json", {"issue": issue, "plan": plan, "repository": profile})
 
         journal.event(RunPhase.CREATING_BRANCH, "Creating an isolated feature branch.")
         receipt.require_clean_base(profile.default_branch)
