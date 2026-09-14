@@ -88,7 +88,9 @@ def apply_plan_approval(
         final_plan = None
     elif response.decision is ApprovalDecision.APPROVE:
         if response.plan is not None:
-            raise PlanApprovalError("approve keeps the validated plan unchanged; use edit to replace it")
+            raise PlanApprovalError(
+                "approve keeps the validated plan unchanged; use edit to replace it"
+            )
         final_plan = plan.model_copy(deep=True)
     elif response.decision is ApprovalDecision.EDIT:
         if response.plan is None:
@@ -96,7 +98,9 @@ def apply_plan_approval(
         try:
             final_plan = ChangePlan.model_validate(response.plan.model_dump(mode="json"))
         except Exception as exc:
-            raise PlanApprovalError("edited plan failed the normal ChangePlan validation boundary") from exc
+            raise PlanApprovalError(
+                "edited plan failed the normal ChangePlan validation boundary"
+            ) from exc
     else:  # pragma: no cover - StrEnum exhaustiveness guard
         raise PlanApprovalError("unknown approval decision")
 
