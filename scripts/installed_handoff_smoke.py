@@ -97,7 +97,16 @@ def create_fixture(root: Path) -> tuple[Path, str]:
         "        self.assertEqual(divide(8, 2), 4)\n",
         encoding="utf-8",
     )
-    git(repository, "add", "--", ".gitignore", ".tasktopr.toml", ".patchwitness.toml", "calculator.py", "test_calculator.py")
+    git(
+        repository,
+        "add",
+        "--",
+        ".gitignore",
+        ".tasktopr.toml",
+        ".patchwitness.toml",
+        "calculator.py",
+        "test_calculator.py",
+    )
     git(repository, "commit", "-m", "fixture base")
     base = git(repository, "rev-parse", "HEAD")
     git(repository, "remote", "add", "origin", str(remote))
