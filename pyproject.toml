@@ -39,6 +39,7 @@ Issues = "https://github.com/pangxueyuan2-creator/tasktopr/issues"
 
 [project.scripts]
 tasktopr = "tasktopr.cli:main"
+tasktopr-export-evidence = "tasktopr.handoff:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
