@@ -12,6 +12,7 @@ from pathlib import Path
 
 PATCHWITNESS_REPOSITORY = "https://github.com/pangxueyuan2-creator/patchwitness.git"
 PATCHWITNESS_REVISION = "e44d2c7ccea615bb4b43449e77573e02c0bcbb60"
+PATCHWITNESS_POLICY_PATH = ".pw-policy.toml"
 
 
 def digest(value: object) -> str:
@@ -80,7 +81,7 @@ def create_fixture(root: Path) -> tuple[Path, str]:
         """[agent]\nprovider = \"demo\"\n\n[testing]\ncommands = [[\"python\", \"-m\", \"unittest\", \"discover\", \"-v\"]]\n""",
         encoding="utf-8",
     )
-    (repository / ".patchwitness.toml").write_text(
+    (repository / PATCHWITNESS_POLICY_PATH).write_text(
         'id = "installed-safe-delivery-fixture"\ngoal = "verify the exact installed consumer candidate"\n',
         encoding="utf-8",
     )
@@ -121,7 +122,7 @@ def create_fixture(root: Path) -> tuple[Path, str]:
         "--",
         ".gitignore",
         ".tasktopr.toml",
-        ".patchwitness.toml",
+        PATCHWITNESS_POLICY_PATH,
         ".tasktopr-demo-issue.json",
         "calculator.py",
         "test_calculator.py",
@@ -202,6 +203,8 @@ def verify_rejected(
             base,
             "--policy-ref",
             base,
+            "--policy-path",
+            PATCHWITNESS_POLICY_PATH,
             "--output",
             str(output),
         ],
@@ -329,6 +332,8 @@ def main() -> int:
                 base,
                 "--policy-ref",
                 base,
+                "--policy-path",
+                PATCHWITNESS_POLICY_PATH,
                 "--output",
                 str(passport),
             ],
