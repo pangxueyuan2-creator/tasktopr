@@ -9,6 +9,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
 
+from .approval import ApprovalMode
+
 
 class AgentConfig(BaseModel):
     provider: str = "openai"
@@ -37,11 +39,18 @@ class ScopeConfig(BaseModel):
     max_context_bytes: int = Field(default=80_000, ge=4_000, le=500_000)
 
 
+class ApprovalConfig(BaseModel):
+    """Optional human gate after validation and before any repository mutation."""
+
+    mode: ApprovalMode = ApprovalMode.OFF
+
+
 class TaskToPRConfig(BaseModel):
     agent: AgentConfig = Field(default_factory=AgentConfig)
     permissions: PermissionsConfig = Field(default_factory=PermissionsConfig)
     testing: TestingConfig = Field(default_factory=TestingConfig)
     scope: ScopeConfig = Field(default_factory=ScopeConfig)
+    approval: ApprovalConfig = Field(default_factory=ApprovalConfig)
 
 
 class ConfigError(ValueError):
