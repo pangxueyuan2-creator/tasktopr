@@ -15,6 +15,7 @@ from .agents import (
     review_changes,
     run_quality_checks,
 )
+from .approval import ApprovalMode, PlanApprover, apply_plan_approval
 from .config import TaskToPRConfig
 from .events import RunJournal
 from .models import CommandResult, Issue, RunPhase, RunResult
@@ -75,6 +76,7 @@ def fix_issue(
     dry_run: bool = False,
     no_pr: bool = False,
     demo: bool = False,
+    plan_approver: PlanApprover | None = None,
 ) -> RunResult:
     """Execute a finite repair run; failures produce evidence and never create a PR."""
 
@@ -103,6 +105,33 @@ def fix_issue(
             return RunResult(
                 run_dir=journal.run_dir, issue=issue, plan=plan, success=True, message=message
             )
+
+        if config.approval.mode is ApprovalMode.PROMPT:
+            journal.event(
+                RunPhase.APPROVING_PLAN,
+                "Waiting for explicit human approval before branch creation or file mutation.",
+            )
+            approved_plan, approval_record = apply_plan_approval(
+                plan,
+                mode=config.approval.mode,
+                approver=plan_approver,
+            )
+            journal.write_json("plan-approval.json", approval_record)
+            if approved_plan is None:
+                message = "Plan rejected. No branch, files, tests, commit, push or Pull Request were created."
+                journal.write_json("changes.json", {"changed_files": [], "mode": "rejected"})
+                journal.write_json("test-results.json", [])
+                journal.write_markdown("summary.md", _summary(issue, plan.summary, [], [], message))
+                journal.event(RunPhase.COMPLETED, message)
+                return RunResult(
+                    run_dir=journal.run_dir,
+                    issue=issue,
+                    plan=plan,
+                    success=False,
+                    message=message,
+                )
+            plan = approved_plan
+            journal.write_json("plan.json", {"issue": issue, "plan": plan, "repository": profile})
 
         journal.event(RunPhase.CREATING_BRANCH, "Creating an isolated feature branch.")
         receipt.require_clean_base(profile.default_branch)

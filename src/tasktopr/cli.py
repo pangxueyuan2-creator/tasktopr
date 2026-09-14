@@ -9,12 +9,15 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from pydantic import ValidationError
 from rich.console import Console
 from rich.table import Table
 
 from . import __version__
 from .agents import git_root, review_changes
+from .approval import ApprovalDecision, ApprovalMode, PlanApproval
 from .config import ConfigError, TaskToPRConfig, load_config, provider_api_key, redacted_config
+from .models import ChangePlan
 from .orchestrator import fix_issue, plan_issue
 from .providers import DemoProvider, ModelProvider, ProviderError, build_provider
 
@@ -59,6 +62,40 @@ def _render_result(result_message: str, run_dir: Path, success: bool) -> None:
     style = "bold green" if success else "bold red"
     console.print(f"[{style}]{result_message}[/]")
     console.print(f"Evidence: [cyan]{run_dir}[/]")
+
+
+def _prompt_plan_approval(plan: ChangePlan) -> PlanApproval:
+    """Collect one explicit local decision without treating missing stdin as approval."""
+
+    console.print("[bold]Validated plan awaiting approval:[/]")
+    console.print_json(plan.model_dump_json(indent=2))
+    if not sys.stdin.isatty():
+        console.print("[yellow]Approval prompt is non-interactive; rejecting without mutation.[/]")
+        return PlanApproval(decision=ApprovalDecision.REJECT)
+
+    decision = (
+        typer.prompt(
+            "Decision (approve/edit/reject)",
+            default=ApprovalDecision.REJECT.value,
+            show_default=True,
+        )
+        .strip()
+        .casefold()
+    )
+    if decision == ApprovalDecision.APPROVE.value:
+        return PlanApproval(decision=ApprovalDecision.APPROVE)
+    if decision == ApprovalDecision.REJECT.value:
+        return PlanApproval(decision=ApprovalDecision.REJECT)
+    if decision == ApprovalDecision.EDIT.value:
+        raw = typer.prompt("Paste the complete replacement ChangePlan JSON", default="")
+        try:
+            edited = ChangePlan.model_validate_json(raw)
+        except ValidationError as exc:
+            raise RuntimeError(
+                "Edited plan failed the normal ChangePlan validation boundary."
+            ) from exc
+        return PlanApproval(decision=ApprovalDecision.EDIT, plan=edited)
+    raise RuntimeError("Approval decision must be approve, edit, or reject.")
 
 
 @app.command()
@@ -112,11 +149,23 @@ def fix(
     demo: Annotated[
         bool, typer.Option("--demo", help="Use the deterministic local demo provider and Issue.")
     ] = False,
+    approval: Annotated[
+        ApprovalMode | None,
+        typer.Option(
+            "--approval",
+            help="Override plan approval mode: off preserves current behavior; prompt requires a human decision.",
+        ),
+    ] = None,
 ) -> None:
-    """Plan, patch, test, review and optionally create a Pull Request for one Issue."""
+    """Plan, approve, patch, test, review and optionally create a Pull Request."""
 
     try:
         root, config, model_provider = _config_and_provider(Path.cwd(), provider, model, demo)
+        if approval is not None:
+            config.approval.mode = approval
+        plan_approver = (
+            _prompt_plan_approval if config.approval.mode is ApprovalMode.PROMPT else None
+        )
         result = fix_issue(
             issue_number,
             start_dir=root,
@@ -125,6 +174,7 @@ def fix(
             dry_run=dry_run,
             no_pr=no_pr,
             demo=demo,
+            plan_approver=plan_approver,
         )
     except (ConfigError, ProviderError, RuntimeError) as exc:
         console.print(f"[bold red]Configuration error:[/] {exc}")

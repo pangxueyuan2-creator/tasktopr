@@ -31,11 +31,35 @@ tasktopr fix 123                   # full run (can open a PR)
 
 Always inspect the evidence folder under `.tasktopr/runs/` before merging anything.
 
+### Optional human approval before mutation
+
+TaskToPR can require an explicit local approval after the model plan has passed its normal schema/policy validation but **before any branch is created or file is changed**:
+
+```bash
+tasktopr fix 123 --approval prompt
+```
+
+Or persist the opt-in policy:
+
+```toml
+[approval]
+mode = "prompt"
+```
+
+`off` is the compatibility default; `prompt` requires an explicit `approve`, `edit`, or `reject` decision for mutating runs. A non-interactive `prompt` run rejects rather than treating missing input as consent. `--dry-run` remains read-only and never needs approval because it cannot cross the mutation boundary.
+
+- `approve` keeps the validated plan unchanged.
+- `edit` requires a complete replacement `ChangePlan` JSON and revalidates it through the same schema/path boundaries before mutation.
+- `reject` exits before branch creation, patching, tests, commits, pushes, or PR creation.
+
+Approval evidence is written to `plan-approval.json` with a versioned schema, decision, UTC timestamp, and SHA-256 identities for the original/final validated plans. The approval record deliberately does not copy raw prompts, credentials, provider responses, or free-form approval text. Approval is permission to proceed with the bounded local run; it is **not** merge or release authorization.
+
 ## Evidence
 
 Each run creates a folder containing:
 
 - `plan.json`
+- `plan-approval.json` when approval mode is enabled for a mutating run
 - `changes.json`
 - `test-results.json` (real subprocess results)
 - `summary.md`
@@ -59,6 +83,7 @@ See the [Safe Delivery execution handoff](docs/safe-delivery-handoff.md) for the
 - Paths are resolved inside the Git root; path traversal is blocked
 - Protected paths (workflows, lockfiles, secrets, etc.) are excluded by default
 - Only a small allowlist of test/build commands is permitted
+- Optional `prompt` approval is resolved before branch creation or file mutation and fails closed without an explicit decision
 - No unrestricted shell is given to the model
 - API keys are never written into logs or evidence files
 
