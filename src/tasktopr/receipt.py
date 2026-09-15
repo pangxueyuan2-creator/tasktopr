@@ -29,6 +29,7 @@ MAX_TOTAL_BYTES = 64 * 1024 * 1024
 POLICY_VERSION = "tasktopr-execution-v1"
 _EPHEMERAL = {".tasktopr", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
 _DEVICE = re.compile(r"^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)", re.IGNORECASE)
+_DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 
 
 def digest(value: object) -> str:
@@ -215,8 +216,9 @@ class ExecutionReceipt:
         self.tested: dict[str, str] | None = None
         self.index_digest: str | None = None
         self.control_digest = digest(git(root, "config", "--list", "--null", "--show-origin").hex())
+        approval_mode = config.approval.mode.value
         self.payload: dict[str, Any] = {
-            "schema_version": 1,
+            "schema_version": 2,
             "run_id": journal.run_dir.name,
             "started_at": datetime.now(UTC).isoformat(),
             "repository_identity": {
@@ -246,6 +248,14 @@ class ExecutionReceipt:
             "changed_file_manifest": [],
             "protected_path_decision": "unknown",
             "tests": {"status": "unknown", "count": 0},
+            "plan_approval": {
+                "mode": approval_mode,
+                "decision": "not_required" if approval_mode == "off" else "pending",
+                "edited": False,
+                "original_plan_sha256": None,
+                "final_plan_sha256": None,
+                "record_sha256": None,
+            },
             "ci": "unknown",
             "human_review": "unknown",
             "decision": "UNKNOWN",
@@ -265,6 +275,57 @@ class ExecutionReceipt:
         self.payload["task_sha256"] = digest(issue.model_dump(mode="json"))
         self.payload["command_list_sha256"] = digest(commands)
         self.checkpoint("planned")
+
+    def record_plan_approval(self, record: dict[str, Any]) -> None:
+        """Bind a digest-only view of the trusted pre-mutation approval record."""
+        expected = {
+            "schema_version",
+            "mode",
+            "decision",
+            "original_plan_sha256",
+            "final_plan_sha256",
+            "edited",
+            "decided_at",
+        }
+        if (
+            set(record) != expected
+            or record.get("schema_version") != "tasktopr.dev/plan-approval/v1"
+        ):
+            raise SecurityError("Invalid plan-approval evidence schema.")
+        current = self.payload.get("plan_approval")
+        if (
+            not isinstance(current, dict)
+            or current.get("mode") != "prompt"
+            or record.get("mode") != "prompt"
+        ):
+            raise SecurityError("Plan-approval evidence does not match configured approval mode.")
+        decision = record.get("decision")
+        if decision not in {"approve", "edit", "reject"}:
+            raise SecurityError("Unsupported plan-approval decision.")
+        original = record.get("original_plan_sha256")
+        final = record.get("final_plan_sha256")
+        edited = record.get("edited")
+        if not isinstance(original, str) or not _DIGEST.fullmatch(original):
+            raise SecurityError("Invalid original plan identity in approval evidence.")
+        if final is not None and (not isinstance(final, str) or not _DIGEST.fullmatch(final)):
+            raise SecurityError("Invalid final plan identity in approval evidence.")
+        if type(edited) is not bool or edited != (final is not None and final != original):
+            raise SecurityError("Inconsistent edited-plan identity in approval evidence.")
+        if decision == "approve" and (final != original or edited):
+            raise SecurityError("Approve decision must preserve the validated plan identity.")
+        if decision == "edit" and final is None:
+            raise SecurityError("Edit decision requires a final plan identity.")
+        if decision == "reject" and (final is not None or edited):
+            raise SecurityError("Reject decision must not authorize a final plan.")
+        self.payload["plan_approval"] = {
+            "mode": "prompt",
+            "decision": decision,
+            "edited": edited,
+            "original_plan_sha256": original,
+            "final_plan_sha256": final,
+            "record_sha256": digest(record),
+        }
+        self.checkpoint("approval_recorded")
 
     def require_clean_base(self, base_branch: str) -> None:
         if (

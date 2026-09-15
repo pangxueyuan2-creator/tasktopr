@@ -117,6 +117,7 @@ def fix_issue(
                 approver=plan_approver,
             )
             journal.write_json("plan-approval.json", approval_record)
+            receipt.record_plan_approval(approval_record)
             if approved_plan is None:
                 message = "Plan rejected. No branch, files, tests, commit, push or Pull Request were created."
                 journal.write_json("changes.json", {"changed_files": [], "mode": "rejected"})
@@ -269,25 +270,16 @@ def _summary(
 ) -> str:
     files = "\n".join(f"- `{path}`" for path in changed_files) or "- None"
     review = "\n".join(f"- {finding}" for finding in findings) or "- No review findings."
-    return f"""# TaskToPR run
-
-## Issue
-
-#{issue.number}: {issue.title}
-
-## Summary
-
-{summary}
-
-## Files changed
-
-{files}
-
-## Review findings
-
-{review}
-
-## Outcome
-
-{outcome}
-"""
+    return (
+        "# TaskToPR run\n\n"
+        "## Issue\n\n"
+        f"#{issue.number}: {issue.title}\n\n"
+        "## Summary\n\n"
+        f"{summary}\n\n"
+        "## Files changed\n\n"
+        f"{files}\n\n"
+        "## Review findings\n\n"
+        f"{review}\n\n"
+        "## Outcome\n\n"
+        f"{outcome}\n"
+    )
