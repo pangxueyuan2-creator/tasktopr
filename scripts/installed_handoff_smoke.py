@@ -11,8 +11,11 @@ import tempfile
 from pathlib import Path
 
 PATCHWITNESS_REPOSITORY = "https://github.com/pangxueyuan2-creator/patchwitness.git"
-PATCHWITNESS_REVISION = "89f9caf3800c8536fdc86db7fa61fde3431c548a"
+PATCHWITNESS_REVISION = "36e00e7d2b7339ea278b3ccca797e95217b7bd59"
 PATCHWITNESS_POLICY_PATH = ".pw-policy.toml"
+TASKTOPR_VERSION = "0.1.0"
+TASKTOPR_HANDOFF_SCHEMA = "tasktopr.dev/safe-delivery/execution/v2"
+TASKTOPR_LEGACY_HANDOFF_SCHEMA = "tasktopr.dev/safe-delivery/execution/v1"
 APPROVED_FIX_RUNNER = """\
 from pathlib import Path
 
@@ -107,11 +110,15 @@ def create_fixture(root: Path) -> tuple[Path, str]:
 
     (repository / ".gitignore").write_text(".tasktopr/\n__pycache__/\n*.pyc\n", encoding="utf-8")
     (repository / ".tasktopr.toml").write_text(
-        """[agent]\nprovider = \"demo\"\n\n[testing]\ncommands = [[\"python\", \"-m\", \"unittest\", \"discover\", \"-v\"]]\n""",
+        "[agent]\n"
+        'provider = "demo"\n\n'
+        "[testing]\n"
+        'commands = [["python", "-m", "unittest", "discover", "-v"]]\n',
         encoding="utf-8",
     )
     (repository / PATCHWITNESS_POLICY_PATH).write_text(
-        'id = "installed-safe-delivery-fixture"\ngoal = "verify the exact installed consumer candidate"\n',
+        'id = "installed-safe-delivery-fixture"\n'
+        'goal = "verify the exact installed consumer candidate"\n',
         encoding="utf-8",
     )
     demo_issue = {
@@ -210,6 +217,40 @@ def build_patchwitness_wheel(python: Path, root: Path) -> Path:
     return candidates[0]
 
 
+def consumer_command(
+    cli: Path,
+    handoff: Path,
+    *,
+    tasktopr_revision: str,
+    base: str,
+    output: Path,
+    tasktopr_version: str = TASKTOPR_VERSION,
+    tasktopr_schema: str = TASKTOPR_HANDOFF_SCHEMA,
+) -> list[str]:
+    return [
+        str(cli),
+        "--json",
+        "tasktopr",
+        "--handoff",
+        str(handoff),
+        "--tasktopr-revision",
+        tasktopr_revision,
+        "--tasktopr-version",
+        tasktopr_version,
+        "--tasktopr-schema",
+        tasktopr_schema,
+        "--base",
+        base,
+        "--policy-ref",
+        base,
+        "--policy-path",
+        PATCHWITNESS_POLICY_PATH,
+        "--require-plan-approval",
+        "--output",
+        str(output),
+    ]
+
+
 def verify_rejected(
     cli: Path,
     handoff: Path,
@@ -218,32 +259,26 @@ def verify_rejected(
     base: str,
     repository: Path,
     output: Path,
+    reason: str,
+    tasktopr_version: str = TASKTOPR_VERSION,
+    tasktopr_schema: str = TASKTOPR_HANDOFF_SCHEMA,
 ) -> None:
     result = run(
-        [
-            str(cli),
-            "--json",
-            "tasktopr",
-            "--handoff",
-            str(handoff),
-            "--tasktopr-revision",
-            tasktopr_revision,
-            "--base",
-            base,
-            "--policy-ref",
-            base,
-            "--policy-path",
-            PATCHWITNESS_POLICY_PATH,
-            "--require-plan-approval",
-            "--output",
-            str(output),
-        ],
+        consumer_command(
+            cli,
+            handoff,
+            tasktopr_revision=tasktopr_revision,
+            base=base,
+            output=output,
+            tasktopr_version=tasktopr_version,
+            tasktopr_schema=tasktopr_schema,
+        ),
         cwd=repository,
         expected=2,
     )
     payload = json.loads(result.stdout)
     if payload.get("ok") is not False or output.exists():
-        raise RuntimeError("PatchWitness did not fail closed for rejected execution evidence")
+        raise RuntimeError(f"PatchWitness did not fail closed for {reason}")
 
 
 def main() -> int:
@@ -285,6 +320,20 @@ def main() -> int:
             cwd=root,
             timeout=240,
         )
+        installed_version = run(
+            [
+                str(python),
+                "-c",
+                "from importlib.metadata import version; print(version('tasktopr'))",
+            ],
+            cwd=root,
+        ).stdout.strip()
+        if installed_version != TASKTOPR_VERSION:
+            raise RuntimeError(
+                f"installed TaskToPR version {installed_version!r} does not match "
+                f"reviewer pin {TASKTOPR_VERSION!r}"
+            )
+
         patchwitness_wheel = build_patchwitness_wheel(python, root)
         run(
             [
@@ -342,8 +391,10 @@ def main() -> int:
 
         handoff_report = json.loads(handoff.read_text(encoding="utf-8"))
         handoff_payload = handoff_report["payload"]
-        if handoff_payload["schema_version"] != "tasktopr.dev/safe-delivery/execution/v2":
+        if handoff_payload["schema_version"] != TASKTOPR_HANDOFF_SCHEMA:
             raise RuntimeError("installed TaskToPR exporter emitted the wrong handoff schema")
+        if handoff_payload["producer"]["version"] != TASKTOPR_VERSION:
+            raise RuntimeError("TaskToPR handoff lost the reviewer-pinned producer version")
         if handoff_payload["change"]["base_sha"] != base:
             raise RuntimeError("TaskToPR handoff lost the exact base revision")
         if handoff_payload["change"]["head_sha"] != candidate:
@@ -360,24 +411,13 @@ def main() -> int:
 
         passport = root / "safe-delivery.json"
         composed = run(
-            [
-                str(patchwitness),
-                "--json",
-                "tasktopr",
-                "--handoff",
-                str(handoff),
-                "--tasktopr-revision",
-                tasktopr_revision,
-                "--base",
-                base,
-                "--policy-ref",
-                base,
-                "--policy-path",
-                PATCHWITNESS_POLICY_PATH,
-                "--require-plan-approval",
-                "--output",
-                str(passport),
-            ],
+            consumer_command(
+                patchwitness,
+                handoff,
+                tasktopr_revision=tasktopr_revision,
+                base=base,
+                output=passport,
+            ),
             cwd=repository,
             env=environment,
         )
@@ -404,6 +444,27 @@ def main() -> int:
         if verified["receipt_sha256"] != composition["receipt_sha256"]:
             raise RuntimeError("offline verification changed the Change Passport receipt identity")
 
+        verify_rejected(
+            patchwitness,
+            handoff,
+            tasktopr_revision=tasktopr_revision,
+            base=base,
+            repository=repository,
+            output=root / "version-mismatch-passport.json",
+            reason="producer version mismatch",
+            tasktopr_version="0.1.1",
+        )
+        verify_rejected(
+            patchwitness,
+            handoff,
+            tasktopr_revision=tasktopr_revision,
+            base=base,
+            repository=repository,
+            output=root / "schema-mismatch-passport.json",
+            reason="handoff schema mismatch",
+            tasktopr_schema=TASKTOPR_LEGACY_HANDOFF_SCHEMA,
+        )
+
         tampered_report = json.loads(handoff.read_text(encoding="utf-8"))
         tampered_report["receipt_sha256"] = "0" * 64
         tampered_handoff = root / "tampered-handoff.json"
@@ -415,6 +476,7 @@ def main() -> int:
             base=base,
             repository=repository,
             output=root / "tampered-passport.json",
+            reason="tampered execution evidence",
         )
 
         incomplete_report = json.loads(handoff.read_text(encoding="utf-8"))
@@ -429,19 +491,25 @@ def main() -> int:
             base=base,
             repository=repository,
             output=root / "incomplete-passport.json",
+            reason="incomplete execution evidence",
         )
 
         summary = {
             "decision": verified["decision"],
             "passport_receipt_sha256": verified["receipt_sha256"],
             "tasktopr_revision": tasktopr_revision,
+            "tasktopr_version": TASKTOPR_VERSION,
+            "tasktopr_schema": TASKTOPR_HANDOFF_SCHEMA,
             "tasktopr_wheel_sha256": file_digest(tasktopr_wheel),
             "patchwitness_revision": PATCHWITNESS_REVISION,
             "patchwitness_wheel_sha256": file_digest(patchwitness_wheel),
             "base_sha": base,
             "candidate_sha": candidate,
+            "compatibility_pins_required": True,
             "plan_approval_policy_required": True,
             "approval_fixture": "test-only trusted-local-UI callback",
+            "version_mismatch_rejected": True,
+            "schema_mismatch_rejected": True,
             "tampered_handoff_rejected": True,
             "incomplete_handoff_rejected": True,
         }
