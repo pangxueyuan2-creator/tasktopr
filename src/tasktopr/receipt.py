@@ -287,10 +287,17 @@ class ExecutionReceipt:
             "edited",
             "decided_at",
         }
-        if set(record) != expected or record.get("schema_version") != "tasktopr.dev/plan-approval/v1":
+        if (
+            set(record) != expected
+            or record.get("schema_version") != "tasktopr.dev/plan-approval/v1"
+        ):
             raise SecurityError("Invalid plan-approval evidence schema.")
         current = self.payload.get("plan_approval")
-        if not isinstance(current, dict) or current.get("mode") != "prompt" or record.get("mode") != "prompt":
+        if (
+            not isinstance(current, dict)
+            or current.get("mode") != "prompt"
+            or record.get("mode") != "prompt"
+        ):
             raise SecurityError("Plan-approval evidence does not match configured approval mode.")
         decision = record.get("decision")
         if decision not in {"approve", "edit", "reject"}:
