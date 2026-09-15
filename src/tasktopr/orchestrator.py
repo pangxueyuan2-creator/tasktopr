@@ -117,6 +117,7 @@ def fix_issue(
                 approver=plan_approver,
             )
             journal.write_json("plan-approval.json", approval_record)
+            receipt.record_plan_approval(approval_record)
             if approved_plan is None:
                 message = "Plan rejected. No branch, files, tests, commit, push or Pull Request were created."
                 journal.write_json("changes.json", {"changed_files": [], "mode": "rejected"})
