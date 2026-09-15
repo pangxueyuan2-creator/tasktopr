@@ -17,7 +17,10 @@ import tempfile
 from pathlib import Path
 from typing import Any, cast
 
-HANDOFF_SCHEMA = "tasktopr.dev/safe-delivery/execution/v1"
+HANDOFF_SCHEMA_V1 = "tasktopr.dev/safe-delivery/execution/v1"
+HANDOFF_SCHEMA_V2 = "tasktopr.dev/safe-delivery/execution/v2"
+# Backward-compatible alias for consumers that imported the original constant.
+HANDOFF_SCHEMA = HANDOFF_SCHEMA_V1
 MAX_RECEIPT_BYTES = 512 * 1024
 MAX_CHANGED_FILES = 10_000
 _SHA = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
@@ -132,6 +135,59 @@ def _validated_manifest(value: Any) -> list[dict[str, Any]]:
     return result
 
 
+def _validated_plan_approval(value: Any) -> dict[str, Any]:
+    approval = _object(value, "plan_approval")
+    expected = {
+        "mode",
+        "decision",
+        "edited",
+        "original_plan_sha256",
+        "final_plan_sha256",
+        "record_sha256",
+    }
+    if set(approval) != expected:
+        raise HandoffError("plan approval has unexpected fields")
+    mode = _string(approval["mode"], "plan_approval.mode")
+    decision = _string(approval["decision"], "plan_approval.decision")
+    edited = approval["edited"]
+    if type(edited) is not bool:
+        raise HandoffError("plan_approval.edited must be boolean")
+    if mode == "off":
+        if (
+            decision != "not_required"
+            or edited
+            or approval["original_plan_sha256"] is not None
+            or approval["final_plan_sha256"] is not None
+            or approval["record_sha256"] is not None
+        ):
+            raise HandoffError("disabled plan approval is inconsistent")
+        return {
+            "mode": "off",
+            "decision": "not_required",
+            "edited": False,
+            "original_plan_sha256": None,
+            "final_plan_sha256": None,
+            "record_sha256": None,
+        }
+    if mode != "prompt" or decision not in {"approve", "edit"}:
+        raise HandoffError("plan approval is not a completed human decision")
+    original = _digest(approval["original_plan_sha256"], "plan_approval.original_plan_sha256")
+    final = _digest(approval["final_plan_sha256"], "plan_approval.final_plan_sha256")
+    record_sha256 = _digest(approval["record_sha256"], "plan_approval.record_sha256")
+    if edited != (original != final):
+        raise HandoffError("plan approval edit identity is inconsistent")
+    if decision == "approve" and edited:
+        raise HandoffError("approve decision cannot replace the plan")
+    return {
+        "mode": "prompt",
+        "decision": decision,
+        "edited": edited,
+        "original_plan_sha256": original,
+        "final_plan_sha256": final,
+        "record_sha256": record_sha256,
+    }
+
+
 def build_execution_handoff(receipt: dict[str, Any], *, tool_revision: str) -> dict[str, Any]:
     """Validate an exact-head TaskToPR receipt and emit bounded portable evidence."""
     if not _SHA1.fullmatch(tool_revision):
@@ -142,8 +198,12 @@ def build_execution_handoff(receipt: dict[str, Any], *, tool_revision: str) -> d
     receipt_sha256 = _digest(receipt["receipt_sha256"], "receipt_sha256")
     if content_digest(payload) != receipt_sha256:
         raise HandoffError("execution receipt digest does not match its payload")
-    if payload.get("schema_version") != 1:
+    source_schema = payload.get("schema_version")
+    if source_schema not in {1, 2}:
         raise HandoffError("unsupported TaskToPR execution receipt schema")
+    plan_approval = (
+        _validated_plan_approval(payload.get("plan_approval")) if source_schema == 2 else None
+    )
 
     repository = _object(payload.get("repository_identity"), "repository_identity")
     if set(repository) != {"kind", "sha256"} or repository.get("kind") != "local-root-sha256":
@@ -189,8 +249,8 @@ def build_execution_handoff(receipt: dict[str, Any], *, tool_revision: str) -> d
     test_result_sha256 = _digest(payload.get("test_result_sha256"), "test_result_sha256")
     change_scope_sha256 = content_digest(manifest)
 
-    handoff = {
-        "schema_version": HANDOFF_SCHEMA,
+    handoff: dict[str, Any] = {
+        "schema_version": HANDOFF_SCHEMA_V2 if source_schema == 2 else HANDOFF_SCHEMA_V1,
         "component": "execution",
         "producer": {
             "name": "tasktopr",
@@ -215,12 +275,14 @@ def build_execution_handoff(receipt: dict[str, Any], *, tool_revision: str) -> d
             "test_result_sha256": test_result_sha256,
             "protected_path_decision": "allow",
         },
-        "source_receipt": {"schema_version": 1, "sha256": receipt_sha256},
+        "source_receipt": {"schema_version": source_schema, "sha256": receipt_sha256},
         "trust_boundary": (
             "sanitized TaskToPR execution evidence; identity/integrity only; "
             "not confidentiality, a signature, producer authentication, or merge authorization"
         ),
     }
+    if plan_approval is not None:
+        handoff["plan_approval"] = plan_approval
     return {"payload": handoff, "receipt_sha256": content_digest(handoff)}
 
 
