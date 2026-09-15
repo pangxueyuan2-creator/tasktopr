@@ -11,8 +11,37 @@ import tempfile
 from pathlib import Path
 
 PATCHWITNESS_REPOSITORY = "https://github.com/pangxueyuan2-creator/patchwitness.git"
-PATCHWITNESS_REVISION = "3044fbadaa1243718b5ad0b39c9eed81b6988f7c"
+PATCHWITNESS_REVISION = "89f9caf3800c8536fdc86db7fa61fde3431c548a"
 PATCHWITNESS_POLICY_PATH = ".pw-policy.toml"
+APPROVED_FIX_RUNNER = """\
+from pathlib import Path
+
+from tasktopr.approval import ApprovalDecision, ApprovalMode, PlanApproval
+from tasktopr.config import load_config
+from tasktopr.orchestrator import fix_issue
+from tasktopr.providers import DemoProvider
+
+root = Path.cwd()
+config = load_config(root)
+config.approval.mode = ApprovalMode.PROMPT
+
+
+def approve_for_interop_test(_plan):
+    # Test-only stand-in for the trusted local approval UI. This is not external user evidence.
+    return PlanApproval(decision=ApprovalDecision.APPROVE)
+
+
+result = fix_issue(
+    1,
+    start_dir=root,
+    config=config,
+    provider=DemoProvider(),
+    demo=True,
+    plan_approver=approve_for_interop_test,
+)
+if not result.success:
+    raise SystemExit(result.message)
+"""
 
 
 def digest(value: object) -> str:
@@ -205,6 +234,7 @@ def verify_rejected(
             base,
             "--policy-path",
             PATCHWITNESS_POLICY_PATH,
+            "--require-plan-approval",
             "--output",
             str(output),
         ],
@@ -280,7 +310,10 @@ def main() -> int:
         environment.pop("PYTHONPATH", None)
         environment.pop("PYTHONHOME", None)
 
-        run([str(tasktopr), "fix", "1", "--demo"], cwd=repository, env=environment)
+        run([str(tasktopr), "--version"], cwd=repository, env=environment)
+        approved_runner = root / "approved-fix.py"
+        approved_runner.write_text(APPROVED_FIX_RUNNER, encoding="utf-8")
+        run([str(python), str(approved_runner)], cwd=repository, env=environment)
         run_dir = newest_run(repository)
         receipt = run_dir / "execution-receipt.json"
         if not receipt.is_file():
@@ -317,6 +350,13 @@ def main() -> int:
             raise RuntimeError("TaskToPR handoff lost the exact tested candidate revision")
         if handoff_payload["producer"]["git_revision"] != tasktopr_revision:
             raise RuntimeError("TaskToPR handoff lost the exact producer revision")
+        approval = handoff_payload["plan_approval"]
+        if approval["mode"] != "prompt" or approval["decision"] != "approve":
+            raise RuntimeError("TaskToPR handoff lost the explicit approval decision")
+        if approval["edited"] is not False:
+            raise RuntimeError("unchanged approved plan was incorrectly marked as edited")
+        if not isinstance(approval["record_sha256"], str):
+            raise RuntimeError("TaskToPR handoff lost the approval record identity")
 
         passport = root / "safe-delivery.json"
         composed = run(
@@ -334,6 +374,7 @@ def main() -> int:
                 base,
                 "--policy-path",
                 PATCHWITNESS_POLICY_PATH,
+                "--require-plan-approval",
                 "--output",
                 str(passport),
             ],
@@ -399,6 +440,8 @@ def main() -> int:
             "patchwitness_wheel_sha256": file_digest(patchwitness_wheel),
             "base_sha": base,
             "candidate_sha": candidate,
+            "plan_approval_policy_required": True,
+            "approval_fixture": "test-only trusted-local-UI callback",
             "tampered_handoff_rejected": True,
             "incomplete_handoff_rejected": True,
         }
