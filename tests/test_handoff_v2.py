@@ -43,9 +43,7 @@ def _receipt(*, mode: str = "prompt", decision: str = "approve") -> dict[str, ob
         "tool": {"name": "tasktopr", "version": "0.1.0", "source_sha256": "6" * 64},
         "command_list_sha256": "7" * 64,
         "test_result_sha256": "8" * 64,
-        "changed_file_manifest": [
-            {"path_sha256": "9" * 64, "before": "a" * 64, "after": "b" * 64}
-        ],
+        "changed_file_manifest": [{"path_sha256": "9" * 64, "before": "a" * 64, "after": "b" * 64}],
         "protected_path_decision": "allow",
         "tests": {"status": "pass", "count": 1},
         "plan_approval": approval,
