@@ -4,7 +4,12 @@ from copy import deepcopy
 
 import pytest
 
-from tasktopr.handoff import HANDOFF_SCHEMA_V2, HandoffError, build_execution_handoff, content_digest
+from tasktopr.handoff import (
+    HANDOFF_SCHEMA_V2,
+    HandoffError,
+    build_execution_handoff,
+    content_digest,
+)
 
 
 def _receipt(*, mode: str = "prompt", decision: str = "approve") -> dict[str, object]:
