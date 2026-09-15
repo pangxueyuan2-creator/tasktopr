@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 
 PATCHWITNESS_REPOSITORY = "https://github.com/pangxueyuan2-creator/patchwitness.git"
-PATCHWITNESS_REVISION = "e44d2c7ccea615bb4b43449e77573e02c0bcbb60"
+PATCHWITNESS_REVISION = "3044fbadaa1243718b5ad0b39c9eed81b6988f7c"
 PATCHWITNESS_POLICY_PATH = ".pw-policy.toml"
 
 
@@ -309,7 +309,7 @@ def main() -> int:
 
         handoff_report = json.loads(handoff.read_text(encoding="utf-8"))
         handoff_payload = handoff_report["payload"]
-        if handoff_payload["schema_version"] != "tasktopr.dev/safe-delivery/execution/v1":
+        if handoff_payload["schema_version"] != "tasktopr.dev/safe-delivery/execution/v2":
             raise RuntimeError("installed TaskToPR exporter emitted the wrong handoff schema")
         if handoff_payload["change"]["base_sha"] != base:
             raise RuntimeError("TaskToPR handoff lost the exact base revision")
