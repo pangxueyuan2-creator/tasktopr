@@ -270,25 +270,16 @@ def _summary(
 ) -> str:
     files = "\n".join(f"- `{path}`" for path in changed_files) or "- None"
     review = "\n".join(f"- {finding}" for finding in findings) or "- No review findings."
-    return f"""# TaskToPR run
-
-## Issue
-
-#{issue.number}: {issue.title}
-
-## Summary
-
-{summary}
-
-## Files changed
-
-{files}
-
-## Review findings
-
-{review}
-
-## Outcome
-
-{outcome}
-"""
+    return (
+        "# TaskToPR run\n\n"
+        "## Issue\n\n"
+        f"#{issue.number}: {issue.title}\n\n"
+        "## Summary\n\n"
+        f"{summary}\n\n"
+        "## Files changed\n\n"
+        f"{files}\n\n"
+        "## Review findings\n\n"
+        f"{review}\n\n"
+        "## Outcome\n\n"
+        f"{outcome}\n"
+    )
