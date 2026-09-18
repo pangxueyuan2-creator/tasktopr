@@ -22,12 +22,14 @@
     "Public separation of roles between GuardSpec, TaskToPR and PatchWitness",
     "Root AGENTS.md governance and repository product-state authority",
     "Versioned sanitized exact-HEAD execution handoff with a reviewer-supplied TaskToPR producer pin",
-    "Built-wheel external-consumer smoke for the installed Safe Delivery evidence exporter, including tamper rejection"
+    "Built-wheel external-consumer smoke for the installed Safe Delivery evidence exporter, including tamper rejection",
+    "Hosted GuardSpec consumer preflight pinned to reviewed GuardSpec commit 96ac5a2a2f82d174532ae577771cc8efd5ac774b validates TaskToPR instruction hygiene and representative target applicability"
   ],
   "current": [
     "Keep TaskToPR as the bounded Safe Delivery execution producer rather than a second evidence-composition product",
     "Integrate the execution handoff through an explicit PatchWitness adapter that independently derives Git subject and reviewer-owned policy identities",
     "Prefer installed/external-consumer Safe Delivery proof over unrelated standalone feature expansion",
+    "Keep the GuardSpec consumer pin reviewed and update it only after exact-head GuardSpec CI and CodeQL evidence",
     "Keep dependency/control-plane PRs subject to existing security and review gates"
   ],
   "next": [
