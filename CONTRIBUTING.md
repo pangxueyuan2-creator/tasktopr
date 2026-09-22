@@ -24,11 +24,13 @@ pytest -q
 ruff check .
 ruff format --check .
 mypy src/tasktopr
-bandit -q -r src
+bandit -q -c .bandit -r src
 python -m build
 ```
 
 Core coverage is configured to remain at or above 80%. Include a test for normal behavior and an error/safety path when changing policy, provider parsing, path handling, command execution, Git behavior, or Pull Request handling.
+
+Bandit loads the checked-in YAML profile explicitly, matching CI. Its existing subprocess exceptions do not replace review of executable resolution, argument validation, timeouts, and regression tests. An unconfigured `bandit -r src` reports those findings for review even when the configured check passes.
 
 ## Design expectations
 

@@ -33,11 +33,15 @@ pytest -q
 ruff check .
 ruff format --check .
 mypy src/tasktopr
-bandit -q -r src
+bandit -q -c .bandit -r src
 python -m build
 ```
 
 Do not weaken, skip, delete, or bypass a failing check to make a change appear green.
+
+Load the checked-in YAML Bandit profile explicitly, as CI does. Its existing subprocess
+exceptions still require review of executable resolution, argument validation, timeouts,
+and regression tests; an unconfigured `bandit -r src` reports those findings for review.
 
 ## Safety boundaries
 - Never force-push, rewrite history, auto-merge, or push directly to the default branch.

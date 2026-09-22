@@ -254,6 +254,8 @@ def test_cli_doctor_uses_explicit_subprocess_decoding(
 
     monkeypatch.chdir(demo_repo)
     monkeypatch.setattr(cli_module, "git_root", lambda _start: demo_repo)
+    monkeypatch.setattr(cli_module, "changed_paths", lambda _root: [])
+    monkeypatch.setattr(cli_module, "resolve_executable", lambda _name, _root: sys.executable)
     monkeypatch.setattr(cli_module.shutil, "which", lambda _command: "available")
     calls: list[dict[str, object]] = []
 
