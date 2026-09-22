@@ -20,6 +20,8 @@ from .config import ConfigError, TaskToPRConfig, load_config, provider_api_key, 
 from .models import ChangePlan
 from .orchestrator import fix_issue, plan_issue
 from .providers import DemoProvider, ModelProvider, ProviderError, build_provider
+from .receipt import changed_paths
+from .security import SecurityError, redact, resolve_executable
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -193,36 +195,10 @@ def review() -> None:
     try:
         root = git_root(Path.cwd())
         config = load_config(root)
-        tracked = subprocess.run(
-            ["git", "diff", "--name-only", "--relative", "HEAD"],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-        )
-        untracked = subprocess.run(
-            ["git", "ls-files", "--others", "--exclude-standard"],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-        )
-        if tracked.returncode != 0 or untracked.returncode != 0:
-            raise RuntimeError("Unable to inspect current Git working-tree changes.")
-        changed = sorted(
-            {
-                path
-                for path in (*tracked.stdout.splitlines(), *untracked.stdout.splitlines())
-                if path
-            }
-        )
+        changed = changed_paths(root)
         result = review_changes(root, changed, [], config)
-    except (ConfigError, RuntimeError) as exc:
-        console.print(f"[bold red]Review unavailable:[/] {exc}")
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+        console.print(f"[bold red]Review unavailable:[/] {redact(str(exc))}")
         raise typer.Exit(2) from exc
     console.print_json(result.model_dump_json(indent=2))
     if not result.approved:
@@ -261,48 +237,49 @@ def doctor() -> None:
     table.add_column("Check")
     table.add_column("Status")
     table.add_column("Details")
+    root = Path.cwd()
     try:
-        root = git_root(Path.cwd())
+        root = git_root(root)
         config = load_config(root)
         table.add_row("Git repository", "OK", str(root))
         try:
-            status_result = subprocess.run(
-                ["git", "status", "--porcelain"],
+            clean = not changed_paths(root)
+            table.add_row(
+                "Git working tree",
+                "OK" if clean else "WARN",
+                "clean" if clean else "has local changes",
+            )
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+            table.add_row("Git working tree", "WARN", f"unavailable: {redact(str(exc))}")
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+        table.add_row("Git repository", "FAIL", redact(str(exc)))
+        config = TaskToPRConfig()
+    if shutil.which("gh") is None:
+        table.add_row("GitHub CLI auth", "WARN", "gh not found; install GitHub CLI")
+    else:
+        try:
+            # Resolve relative PATH results before switching the child to the Git root.
+            gh_executable = str(Path(resolve_executable("gh", root)).resolve())
+            gh = subprocess.run(
+                [gh_executable, "auth", "status"],
                 cwd=root,
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
                 check=False,
-            )
-            clean = not status_result.stdout.strip()
-            table.add_row(
-                "Git working tree",
-                "OK" if clean else "WARN",
-                "clean" if clean else "has local changes",
-            )
-        except OSError:
-            table.add_row("Git working tree", "WARN", "git executable not available")
-    except (ConfigError, RuntimeError) as exc:
-        table.add_row("Git repository", "FAIL", str(exc))
-        config = TaskToPRConfig()
-    if shutil.which("gh") is None:
-        table.add_row("GitHub CLI auth", "WARN", "gh not found; install GitHub CLI")
-    else:
-        try:
-            gh = subprocess.run(
-                ["gh", "auth", "status"],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                check=False,
+                shell=False,
+                timeout=15,
             )
             table.add_row(
                 "GitHub CLI auth",
                 "OK" if gh.returncode == 0 else "WARN",
                 "authenticated" if gh.returncode == 0 else "run gh auth login",
             )
+        except subprocess.TimeoutExpired:
+            table.add_row("GitHub CLI auth", "WARN", "gh auth status timed out after 15 seconds")
+        except SecurityError:
+            table.add_row("GitHub CLI auth", "WARN", "gh executable blocked by policy")
         except OSError:
             table.add_row("GitHub CLI auth", "WARN", "gh not executable")
     table.add_row("Python", "OK", sys.version.split()[0])

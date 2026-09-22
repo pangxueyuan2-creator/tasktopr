@@ -16,7 +16,7 @@ State whether this changes path policy, command policy, provider behavior, crede
 - [ ] `ruff check .`
 - [ ] `ruff format --check .`
 - [ ] `mypy src/tasktopr`
-- [ ] `bandit -q -r src`
+- [ ] `bandit -q -c .bandit -r src`
 - [ ] Documentation updated when user-visible behavior changed.
 
 ## Checklist

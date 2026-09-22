@@ -123,10 +123,24 @@ def test_missing_executable_is_blocked(tmp_path: Path, monkeypatch: pytest.Monke
     [
         ["python", "-c", "print('arbitrary')"],
         ["python", "-cprint('arbitrary')"],
+        ["python", "-Ic", "print('arbitrary')"],
+        ["python", "-Scprint('arbitrary')"],
+        ["python", "-BSc", "print('arbitrary')"],
+        ["python", "-Wignore", "-Ic", "print('arbitrary')"],
+        ["python", "-Xdev", "-Sc", "print('arbitrary')"],
+        ["python", "-IW", "ignore", "-c", "print('arbitrary')"],
+        ["python", "-BX", "dev", "-c", "print('arbitrary')"],
         ["python", "-X", "dev", "-c", "print('arbitrary')"],
         ["python", "--check-hash-based-pycs", "always", "-c", "print('arbitrary')"],
         ["python", "-m", "pip", "install", "example"],
         ["python", "-m", "pip._internal", "install", "example"],
+        ["python", "-mpip", "--version"],
+        ["python", "-Impip", "--version"],
+        ["python", "-Im", "pip", "--version"],
+        ["python", "-Bmhttp.server"],
+        ["python", "-Sm", "venv", ".venv"],
+        ["python", "-Wignore", "-mpip._internal", "--version"],
+        ["python", "-BXdev", "-mensurepip"],
         ["python", "-m", "ensurepip"],
         ["python", "-m", "venv", ".venv"],
         ["python", "-m", "http.server"],
@@ -144,6 +158,41 @@ def test_known_python_test_forms_remain_allowed() -> None:
 
     validate_command(["python", "-m", "pytest", "-q"])
     validate_command(["python", "runner.py", "-config", "test.toml"])
+
+
+@pytest.mark.parametrize("flags", ["-Ic", "-Sc", "-BSc"])
+def test_clustered_python_inline_code_never_runs(tmp_path: Path, flags: str) -> None:
+    marker = tmp_path / "must-not-run"
+    result = run_safe_command(
+        ["python", flags, "__import__('pathlib').Path('must-not-run').touch()"],
+        cwd=tmp_path,
+        timeout_seconds=15,
+    )
+
+    assert result.blocked is True
+    assert result.return_code == 126
+    assert not marker.exists()
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["-IBm", "pytest", "-q"],
+        ["-Impytest", "-q"],
+        ["-Wignore", "-Xdev", "-m", "pytest", "-q"],
+        ["-BW", "ignore", "-BX", "dev", "-m", "pytest", "-q"],
+        ["-W", "error:module c and m", "-m", "pytest", "-q"],
+        ["-X", "context_aware_warnings=1", "-m", "pytest", "-q"],
+        ["-BWignore:message", "-BXdev", "-m", "pytest", "-q"],
+        ["-m", "pytest", "-c", "pytest.ini"],
+        ["--", "runner.py", "-c", "value"],
+        ["runner.py", "-mpip", "-c", "value"],
+    ],
+)
+def test_python_option_values_and_program_arguments_are_not_interpreter_flags(
+    arguments: list[str],
+) -> None:
+    validate_command(["python", *arguments])
 
 
 @pytest.mark.parametrize(
