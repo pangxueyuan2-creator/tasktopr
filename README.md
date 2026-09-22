@@ -49,7 +49,7 @@ mode = "prompt"
 `off` is the compatibility default; `prompt` requires an explicit `approve`, `edit`, or `reject` decision for mutating runs. A non-interactive `prompt` run rejects rather than treating missing input as consent. `--dry-run` remains read-only and never needs approval because it cannot cross the mutation boundary.
 
 - `approve` keeps the validated plan unchanged.
-- `edit` requires a complete replacement `ChangePlan` JSON and revalidates it through the same schema/path boundaries before mutation.
+- `edit` requires a complete replacement `ChangePlan` JSON and revalidates it through the same schema, protected-path (including configured patterns), and risk policy before recording an accepted approval or creating a branch. Approval cannot override a high/blocked risk or a protected target; a policy failure leaves the execution receipt failed and the approval pending.
 - `reject` exits before branch creation, patching, tests, commits, pushes, or PR creation.
 
 Approval evidence is written to `plan-approval.json` with a versioned schema, decision, UTC timestamp, and SHA-256 identities for the original/final validated plans. The approval record deliberately does not copy raw prompts, credentials, provider responses, or free-form approval text. Approval is permission to proceed with the bounded local run; it is **not** merge or release authorization.

@@ -14,6 +14,7 @@ from .agents import (
     request_patch,
     review_changes,
     run_quality_checks,
+    validate_plan_policy,
 )
 from .approval import ApprovalMode, PlanApprover, apply_plan_approval
 from .config import TaskToPRConfig
@@ -116,6 +117,8 @@ def fix_issue(
                 mode=config.approval.mode,
                 approver=plan_approver,
             )
+            if approved_plan is not None:
+                validate_plan_policy(approved_plan, config)
             journal.write_json("plan-approval.json", approval_record)
             receipt.record_plan_approval(approval_record)
             if approved_plan is None:

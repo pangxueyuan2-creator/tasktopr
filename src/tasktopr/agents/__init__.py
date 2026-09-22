@@ -3,7 +3,7 @@
 from .coder import apply_patch, request_patch
 from .explorer import RepositoryError, compact_context, explore, git_root
 from .intake import IssueIntakeError, load_issue
-from .planner import create_plan
+from .planner import create_plan, validate_plan_policy
 from .reviewer import review_changes
 from .tester import run_quality_checks
 
@@ -19,4 +19,5 @@ __all__ = [
     "request_patch",
     "review_changes",
     "run_quality_checks",
+    "validate_plan_policy",
 ]
