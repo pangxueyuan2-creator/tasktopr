@@ -225,19 +225,31 @@ def _validate_python_command(arguments: list[str]) -> None:
         argument = arguments[index]
         if argument == "--" or argument == "-" or not argument.startswith("-"):
             return
-        if argument == "-m":
-            if index + 1 >= len(arguments):
-                return
-            module = arguments[index + 1].casefold()
-            if module in _PYTHON_BLOCKED_MODULES or module.startswith("pip."):
-                raise SecurityError(f"Python module is not allowed in safe commands: {module}")
-            return
-        if argument == "-c" or argument.startswith("-c"):
-            raise SecurityError("Inline Python code execution is not allowed.")
         if argument in _PYTHON_OPTIONS_WITH_VALUES:
             index += 2
-        else:
+            continue
+        if argument.startswith("--"):
             index += 1
+            continue
+        # CPython accepts clustered short options and attached option values.
+        # Parse the cluster until an option consumes its remainder (or next argv)
+        # so -I/-B cannot hide -c/-m, while -W/-X values remain opaque data.
+        for offset, option in enumerate(argument[1:], start=1):
+            if option == "c":
+                raise SecurityError("Inline Python code execution is not allowed.")
+            if option == "m":
+                module = argument[offset + 1 :]
+                if not module and index + 1 < len(arguments):
+                    module = arguments[index + 1]
+                module = module.casefold()
+                if module in _PYTHON_BLOCKED_MODULES or module.startswith("pip."):
+                    raise SecurityError(f"Python module is not allowed in safe commands: {module}")
+                return
+            if option in {"W", "X"}:
+                if offset == len(argument) - 1:
+                    index += 1
+                break
+        index += 1
 
 
 def _validate_node_command(arguments: list[str]) -> None:
