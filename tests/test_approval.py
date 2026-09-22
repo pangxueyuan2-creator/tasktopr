@@ -5,9 +5,11 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from tasktopr.approval import ApprovalDecision, ApprovalMode, PlanApproval
 from tasktopr.config import TaskToPRConfig, load_config
-from tasktopr.models import ChangePlan, PlanStep
+from tasktopr.models import ChangePlan, PlanStep, RiskLevel
 from tasktopr.orchestrator import fix_issue
 from tasktopr.providers import DemoProvider
 
@@ -93,11 +95,16 @@ def test_rejected_plan_has_no_branch_or_repository_mutation(tmp_path: Path) -> N
     assert changes == {"changed_files": [], "mode": "rejected"}
 
 
-def test_bounded_edit_is_revalidated_and_becomes_the_final_plan(tmp_path: Path) -> None:
+@pytest.mark.parametrize("risk", [RiskLevel.LOW, RiskLevel.MEDIUM])
+def test_bounded_edit_is_revalidated_and_becomes_the_final_plan(
+    tmp_path: Path, risk: RiskLevel
+) -> None:
     root = _repo(tmp_path)
 
     def edit(plan: ChangePlan) -> PlanApproval:
-        edited = plan.model_copy(update={"summary": "Human-approved bounded edit"}, deep=True)
+        edited = plan.model_copy(
+            update={"summary": "Human-approved bounded edit", "risk": risk}, deep=True
+        )
         return PlanApproval(decision=ApprovalDecision.EDIT, plan=edited)
 
     result = fix_issue(
@@ -113,6 +120,7 @@ def test_bounded_edit_is_revalidated_and_becomes_the_final_plan(tmp_path: Path) 
     assert result.success is True
     assert result.plan is not None
     assert result.plan.summary == "Human-approved bounded edit"
+    assert result.plan.risk is risk
     persisted = json.loads((result.run_dir / "plan.json").read_text(encoding="utf-8"))
     assert persisted["plan"]["summary"] == "Human-approved bounded edit"
     approval = json.loads((result.run_dir / "plan-approval.json").read_text(encoding="utf-8"))
@@ -152,6 +160,67 @@ def test_invalid_edit_fails_closed_before_branch_creation(tmp_path: Path) -> Non
     assert _git(root, "rev-parse", "HEAD") == baseline
     assert _git(root, "branch", "--format=%(refname:short)").splitlines() == ["main"]
     assert "return numerator / denominator" in (root / "calculator.py").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("path", "risk", "custom_protected", "expected_error"),
+    [
+        (".github/workflows/ci.yml", RiskLevel.LOW, [], "protected paths"),
+        ("credentials.json", RiskLevel.LOW, [], "protected paths"),
+        ("custom/reviewed.py", RiskLevel.LOW, ["custom/*"], "protected paths"),
+        ("calculator.py", RiskLevel.HIGH, [], "risk is high"),
+        ("calculator.py", RiskLevel.BLOCKED, [], "risk is blocked"),
+    ],
+)
+def test_edited_plan_policy_fails_before_mutation_or_accepted_approval(
+    tmp_path: Path,
+    path: str,
+    risk: RiskLevel,
+    custom_protected: list[str],
+    expected_error: str,
+) -> None:
+    root = _repo(tmp_path)
+    baseline = _git(root, "rev-parse", "HEAD")
+    original = (root / "calculator.py").read_bytes()
+    config = _prompt_config(root)
+    config.scope.protected = custom_protected
+
+    def edit(plan: ChangePlan) -> PlanApproval:
+        steps = (
+            plan.steps
+            if risk is not RiskLevel.LOW
+            else [PlanStep(path=path, action="edit", rationale="Review boundary regression")]
+        )
+        edited = plan.model_copy(update={"steps": steps, "risk": risk}, deep=True)
+        return PlanApproval(decision=ApprovalDecision.EDIT, plan=edited)
+
+    result = fix_issue(
+        1,
+        start_dir=root,
+        config=config,
+        provider=DemoProvider(),
+        no_pr=True,
+        demo=True,
+        plan_approver=edit,
+    )
+
+    assert result.success is False
+    assert expected_error in result.message
+    assert result.branch is None
+    assert _git(root, "rev-parse", "HEAD") == baseline
+    assert _git(root, "branch", "--show-current") == "main"
+    assert _git(root, "branch", "--format=%(refname:short)").splitlines() == ["main"]
+    assert (root / "calculator.py").read_bytes() == original
+    assert _git(root, "diff", "--name-only") == ""
+    assert not (result.run_dir / "plan-approval.json").exists()
+    receipt = json.loads((result.run_dir / "execution-receipt.json").read_text(encoding="utf-8"))
+    assert receipt["payload"]["decision"] == "FAIL"
+    assert receipt["payload"]["plan_approval"]["decision"] == "pending"
+    events = [
+        json.loads(line) for line in (result.run_dir / "events.jsonl").read_text().splitlines()
+    ]
+    assert not any(event["phase"] == "CREATING_BRANCH" for event in events)
+    assert not (result.run_dir / "test-results.json").exists()
 
 
 def test_prompt_mode_without_approval_callback_never_implies_consent(tmp_path: Path) -> None:

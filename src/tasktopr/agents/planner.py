@@ -40,6 +40,13 @@ def create_plan(
     plan = parse_json_model(
         provider.complete(system=_PLAN_SYSTEM, user=user, config=config.agent), ChangePlan
     )
+    validate_plan_policy(plan, config)
+    return plan
+
+
+def validate_plan_policy(plan: ChangePlan, config: TaskToPRConfig) -> None:
+    """Enforce the same execution policy for model plans and human-edited plans."""
+
     protected = [
         step.path for step in plan.steps if is_protected(step.path, config.scope.protected)
     ]
@@ -49,4 +56,3 @@ def create_plan(
         raise ValueError(
             f"Plan was not approved for automatic execution because risk is {plan.risk}."
         )
-    return plan
