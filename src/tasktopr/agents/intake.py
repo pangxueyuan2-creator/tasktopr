@@ -34,19 +34,26 @@ def load_issue(repo_root: Path, issue_number: int, *, demo: bool = False) -> Iss
             cwd=repo_root,
             check=False,
             capture_output=True,
-            text=True,
             timeout=30,
             shell=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise IssueIntakeError(f"Could not execute GitHub CLI: {redact(str(exc))}") from exc
+    try:
+        # Decode after byte capture: Windows subprocess text reader threads can
+        # otherwise swallow UnicodeDecodeError and return None for a stream.
+        stdout = completed.stdout.decode("utf-8", errors="strict")
+        stderr = completed.stderr.decode("utf-8", errors="strict")
+    except UnicodeDecodeError:
+        # Decode exceptions retain the raw bytes; do not chain private Issue data.
+        raise IssueIntakeError("GitHub CLI returned non-UTF-8 output.") from None
     if completed.returncode != 0:
         raise IssueIntakeError(
             "GitHub CLI could not retrieve the Issue. Run `gh auth status` and confirm the issue exists. "
-            f"Details: {redact(completed.stderr[-500:])}"
+            f"Details: {redact(stderr[-500:])}"
         )
     try:
-        raw = json.loads(completed.stdout)
+        raw = json.loads(stdout)
         return _issue_from_mapping(raw)
     except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
         raise IssueIntakeError("GitHub CLI returned an invalid Issue payload.") from exc

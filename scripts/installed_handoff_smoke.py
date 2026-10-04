@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import base64
+import csv
 import hashlib
+import io
 import json
 import os
 import subprocess
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 
 PATCHWITNESS_REPOSITORY = "https://github.com/pangxueyuan2-creator/patchwitness.git"
@@ -16,7 +20,43 @@ PATCHWITNESS_POLICY_PATH = ".pw-policy.toml"
 TASKTOPR_VERSION = "0.1.0"
 TASKTOPR_HANDOFF_SCHEMA = "tasktopr.dev/safe-delivery/execution/v2"
 TASKTOPR_LEGACY_HANDOFF_SCHEMA = "tasktopr.dev/safe-delivery/execution/v1"
-APPROVED_FIX_RUNNER = """\
+FAKE_GH_IDENTITY = "tasktopr-installed-consumer-gh-v1"
+FAKE_GH_ISSUE = {
+    "number": 1,
+    "title": "修复中文🙂 zero division",
+    "body": (
+        "The calculator crashes when the denominator is zero.\n\n"
+        "Acceptance criteria:\n"
+        "- divide(8, 0) raises a clear ValueError\n"
+        "- normal division continues to work\n\n"
+        "Constraints:\n"
+        "- Do not refactor unrelated arithmetic behavior"
+    ),
+    "url": "https://example.invalid/issues/1",
+    "labels": [{"name": "bug"}],
+}
+FAKE_GH_SOURCE = f"""\
+import json
+import sys
+
+
+def main():
+    if sys.argv[1:] == ["--tasktopr-smoke-shim"]:
+        print({FAKE_GH_IDENTITY!r})
+        return 0
+    if sys.argv[1:] == ["issue", "view", "1", "--json", "number,title,body,url,labels"]:
+        sys.stdout.buffer.write(json.dumps({FAKE_GH_ISSUE!r}, ensure_ascii=False).encode("utf-8"))
+        return 0
+    if sys.argv[1:3] != ["pr", "create"]:
+        return 2
+    print("https://example.invalid/tasktopr/installed-consumer/pull/1")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+"""
+APPROVED_FIX_RUNNER = f"""\
 from pathlib import Path
 
 from tasktopr.approval import ApprovalDecision, ApprovalMode, PlanApproval
@@ -39,11 +79,13 @@ result = fix_issue(
     start_dir=root,
     config=config,
     provider=DemoProvider(),
-    demo=True,
+    demo=False,
     plan_approver=approve_for_interop_test,
 )
 if not result.success:
     raise SystemExit(result.message)
+if result.issue.title != {FAKE_GH_ISSUE["title"]!r}:
+    raise SystemExit("installed GitHub CLI intake did not preserve the Unicode Issue")
 """
 
 
@@ -71,15 +113,23 @@ def run(
     expected: int = 0,
     timeout: int = 180,
 ) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(
+    raw = subprocess.run(
         command,
         cwd=cwd,
         env=env,
         capture_output=True,
-        text=True,
         check=False,
         timeout=timeout,
     )
+    try:
+        result = subprocess.CompletedProcess(
+            raw.args,
+            raw.returncode,
+            raw.stdout.decode("utf-8", errors="strict"),
+            raw.stderr.decode("utf-8", errors="strict"),
+        )
+    except UnicodeDecodeError:
+        raise RuntimeError("consumer smoke command returned non-UTF-8 output") from None
     if result.returncode != expected:
         raise RuntimeError(
             f"command returned {result.returncode}, expected {expected}: {command}\n"
@@ -121,22 +171,8 @@ def create_fixture(root: Path) -> tuple[Path, str]:
         'goal = "verify the exact installed consumer candidate"\n',
         encoding="utf-8",
     )
-    demo_issue = {
-        "number": 1,
-        "title": "Prevent a crash when dividing by zero",
-        "body": (
-            "The calculator crashes when the denominator is zero.\n\n"
-            "Acceptance criteria:\n"
-            "- divide(8, 0) raises a clear ValueError\n"
-            "- normal division continues to work\n\n"
-            "Constraints:\n"
-            "- Do not refactor unrelated arithmetic behavior"
-        ),
-        "url": "https://example.invalid/issues/1",
-        "labels": [{"name": "bug"}],
-    }
     (repository / ".tasktopr-demo-issue.json").write_text(
-        json.dumps(demo_issue, indent=2, sort_keys=True) + "\n",
+        json.dumps(FAKE_GH_ISSUE, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     (repository / "calculator.py").write_text(
@@ -170,20 +206,80 @@ def create_fixture(root: Path) -> tuple[Path, str]:
     return repository, base
 
 
-def create_fake_gh(root: Path) -> Path:
+def build_fake_gh_wheel(tools: Path) -> Path:
+    """Create an offline synthetic console entry point without a build backend."""
+    distribution = "tasktopr_smoke_gh-0.0.0.dist-info"
+    contents = {
+        "tasktopr_smoke_gh.py": FAKE_GH_SOURCE.encode("utf-8"),
+        f"{distribution}/METADATA": (
+            b"Metadata-Version: 2.1\nName: tasktopr-smoke-gh\nVersion: 0.0.0\n"
+        ),
+        f"{distribution}/WHEEL": (
+            b"Wheel-Version: 1.0\nGenerator: tasktopr-installed-smoke\n"
+            b"Root-Is-Purelib: true\nTag: py3-none-any\n"
+        ),
+        f"{distribution}/entry_points.txt": (b"[console_scripts]\ngh = tasktopr_smoke_gh:main\n"),
+    }
+    record = io.StringIO(newline="")
+    writer = csv.writer(record)
+    for name, payload in contents.items():
+        checksum = base64.urlsafe_b64encode(hashlib.sha256(payload).digest()).rstrip(b"=").decode()
+        writer.writerow((name, f"sha256={checksum}", len(payload)))
+    writer.writerow((f"{distribution}/RECORD", "", ""))
+    contents[f"{distribution}/RECORD"] = record.getvalue().encode("utf-8")
+    wheel = tools / "tasktopr_smoke_gh-0.0.0-py3-none-any.whl"
+    with zipfile.ZipFile(wheel, "w") as archive:
+        for name, payload in contents.items():
+            archive.writestr(name, payload)
+    return wheel
+
+
+def create_fake_gh(root: Path, python: Path) -> Path:
     tools = root / "tools"
     tools.mkdir()
+    if sys.platform == "win32":
+        wheel = build_fake_gh_wheel(tools)
+        run(
+            [
+                str(python),
+                "-m",
+                "pip",
+                "install",
+                "--disable-pip-version-check",
+                "--no-index",
+                "--no-deps",
+                str(wheel),
+            ],
+            cwd=root,
+        )
+        # pip generates a real gh.exe launcher for this isolated interpreter.
+        return python.parent
     executable = tools / "gh"
-    executable.write_text(
-        "#!/usr/bin/env python3\n"
-        "import sys\n"
-        "if sys.argv[1:3] != ['pr', 'create']:\n"
-        "    raise SystemExit(2)\n"
-        "print('https://example.invalid/tasktopr/installed-consumer/pull/1')\n",
-        encoding="utf-8",
-    )
+    executable.write_text("#!/usr/bin/env python3\n" + FAKE_GH_SOURCE, encoding="utf-8")
     executable.chmod(0o755)
     return tools
+
+
+def verify_fake_gh(python: Path, tools: Path, environment: dict[str, str], *, cwd: Path) -> None:
+    """Fail before pipeline execution if PATH could select the real GitHub CLI."""
+    expected = tools / ("gh.exe" if sys.platform == "win32" else "gh")
+    if not expected.is_file():
+        raise RuntimeError("synthetic GitHub CLI entry point is missing")
+    resolved = json.loads(
+        run(
+            [str(python), "-c", "import json,shutil; print(json.dumps(shutil.which('gh')))"],
+            cwd=cwd,
+            env=environment,
+        ).stdout
+    )
+    if not isinstance(resolved, str) or Path(resolved).resolve() != expected.resolve():
+        raise RuntimeError(
+            "synthetic GitHub CLI is not the resolved gh; refusing fixture execution"
+        )
+    # Invoke only the already-proven synthetic path, never an unresolved `gh`.
+    identity = run([str(expected), "--tasktopr-smoke-shim"], cwd=cwd, env=environment)
+    if identity.stdout.strip() != FAKE_GH_IDENTITY:
+        raise RuntimeError("synthetic GitHub CLI identity probe failed")
 
 
 def newest_run(repository: Path) -> Path:
@@ -351,18 +447,25 @@ def main() -> int:
             if not executable.is_file():
                 raise RuntimeError(f"installed entry point is missing: {executable.name}")
 
-        repository, base = create_fixture(root)
-        tools = create_fake_gh(root)
+        tools = create_fake_gh(root, python)
         environment = os.environ.copy()
         environment["PATH"] = os.pathsep.join((str(tools), str(scripts), environment["PATH"]))
         environment["PYTHONNOUSERSITE"] = "1"
+        # Exercise legacy-locale process boundaries without a system locale change.
+        environment["PYTHONUTF8"] = "0"
+        environment["PYTHONIOENCODING"] = "utf-8"
         environment.pop("PYTHONPATH", None)
         environment.pop("PYTHONHOME", None)
+
+        verify_fake_gh(python, tools, environment, cwd=root)
+        repository, base = create_fixture(root)
 
         run([str(tasktopr), "--version"], cwd=repository, env=environment)
         approved_runner = root / "approved-fix.py"
         approved_runner.write_text(APPROVED_FIX_RUNNER, encoding="utf-8")
-        run([str(python), str(approved_runner)], cwd=repository, env=environment)
+        fixed = run([str(python), str(approved_runner)], cwd=repository, env=environment)
+        if fixed.stderr:
+            raise RuntimeError("installed offline pipeline produced unexpected stderr")
         run_dir = newest_run(repository)
         receipt = run_dir / "execution-receipt.json"
         if not receipt.is_file():
@@ -512,6 +615,9 @@ def main() -> int:
             "schema_mismatch_rejected": True,
             "tampered_handoff_rejected": True,
             "incomplete_handoff_rejected": True,
+            "synthetic_gh_verified": True,
+            "github_cli_intake_exercised": True,
+            "unicode_issue_preserved": True,
         }
         print(json.dumps(summary, sort_keys=True))
     return 0
