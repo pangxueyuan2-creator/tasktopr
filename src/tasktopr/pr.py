@@ -138,18 +138,26 @@ def _run(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
         environment.update(GIT_TERMINAL_PROMPT="0", GIT_NO_REPLACE_OBJECTS="1")
         if command[0] == "gh":
             command = [resolve_executable("gh", cwd), *command[1:]]
-        completed = subprocess.run(
+        raw = subprocess.run(
             command,
             cwd=cwd,
             check=False,
             capture_output=True,
-            text=True,
             timeout=60,
             shell=False,
             env=environment,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise PullRequestError(f"Command could not complete: {redact(str(exc))}") from exc
+    try:
+        completed = subprocess.CompletedProcess(
+            raw.args,
+            raw.returncode,
+            raw.stdout.decode("utf-8", errors="strict"),
+            raw.stderr.decode("utf-8", errors="strict"),
+        )
+    except UnicodeDecodeError:
+        raise PullRequestError("Command returned non-UTF-8 output.") from None
     if completed.returncode != 0:
         raise PullRequestError(f"Command failed: {redact(completed.stderr[-800:])}")
     return completed
