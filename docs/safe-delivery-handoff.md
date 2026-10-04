@@ -34,6 +34,7 @@ The exporter fails closed unless all of the following hold:
 - the separately supplied TaskToPR producer pin is an exact 40-character Git commit.
 
 Invalid evidence never produces a new handoff file. Output uses an atomic replace after validation.
+The output must be a separate file from the input receipt, including resolved path and hard-link aliases. Input receipts are preserved for later inspection. Output filesystem failures, including Windows file locks, produce a CLI usage error; a failed atomic replacement preserves the previous handoff and removes its temporary file.
 
 ## Schema v1
 

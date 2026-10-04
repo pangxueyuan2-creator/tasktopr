@@ -310,7 +310,16 @@ def export_receipt_file(
     report = build_execution_handoff(
         load_execution_receipt(receipt_path), tool_revision=tool_revision
     )
-    _write_report(output_path, report)
+    try:
+        if receipt_path.resolve() == output_path.resolve() or (
+            output_path.exists() and os.path.samefile(receipt_path, output_path)
+        ):
+            raise HandoffError("output must be different from the input receipt")
+        _write_report(output_path, report)
+    except OSError as exc:
+        raise HandoffError(
+            "unable to publish execution handoff; check output permissions and file locks"
+        ) from exc
     return report
 
 
