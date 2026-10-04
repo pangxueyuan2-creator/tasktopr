@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -169,3 +170,40 @@ def test_rejects_invalid_tool_revision_and_symlink_input(tmp_path: Path) -> None
         pytest.skip("symlink creation unavailable")
     with pytest.raises(HandoffError, match="non-symlink"):
         load_execution_receipt(link)
+
+
+@pytest.mark.parametrize("alias", ["same", "dot", "hardlink"])
+def test_export_preserves_receipt_when_output_is_an_input_alias(tmp_path: Path, alias: str) -> None:
+    receipt = tmp_path / "execution-receipt.json"
+    receipt.write_text(json.dumps(_receipt()), encoding="utf-8")
+    before = receipt.read_bytes()
+    output = receipt
+    if alias == "dot":
+        output = tmp_path / "." / receipt.name
+    elif alias == "hardlink":
+        output = tmp_path / "linked.json"
+        os.link(receipt, output)
+    with pytest.raises(HandoffError, match="different from the input receipt"):
+        export_receipt_file(receipt, tool_revision="e" * 40, output_path=output)
+    assert receipt.read_bytes() == before
+    assert output.read_bytes() == before
+    assert not list(tmp_path.glob(".tasktopr-handoff-*"))
+
+
+def test_export_wraps_windows_file_lock_without_losing_previous_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    receipt = tmp_path / "receipt.json"
+    receipt.write_text(json.dumps(_receipt()), encoding="utf-8")
+    output = tmp_path / "handoff.json"
+    output.write_bytes(b"previous handoff")
+
+    def locked_replace(_source: str, _target: Path) -> None:
+        raise PermissionError("simulated Windows sharing violation")
+
+    monkeypatch.setattr("tasktopr.handoff.os.replace", locked_replace)
+    with pytest.raises(HandoffError, match="publish execution handoff"):
+        export_receipt_file(receipt, tool_revision="e" * 40, output_path=output)
+    assert output.read_bytes() == b"previous handoff"
+    assert json.loads(receipt.read_text(encoding="utf-8")) == _receipt()
+    assert not list(tmp_path.glob(".tasktopr-handoff-*"))
